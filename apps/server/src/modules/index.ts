@@ -1,0 +1,53 @@
+import { Router } from 'express'
+import { assetsRouter } from './assets/assets.routes.js'
+import { auditRouter } from './audit/audit.routes.js'
+import { authRouter } from './auth/auth.routes.js'
+import { dashboardRouter } from './dashboard/dashboard.routes.js'
+import { documentsRouter } from './documents/documents.routes.js'
+import { filesRouter } from './files/files.routes.js'
+import { healthRouter } from './health/health.routes.js'
+import { inspectionsRouter } from './inspections/inspections.routes.js'
+import { inventoryRouter } from './inventory/inventory.routes.js'
+import { jobsRouter } from './jobs/jobs.routes.js'
+import { locationsRouter } from './locations/locations.routes.js'
+import { maintenanceRouter } from './maintenance/maintenance.routes.js'
+import { meRouter } from './me/me.routes.js'
+import { notificationsRouter } from './notifications/notifications.routes.js'
+import { proceduresRouter } from './procedures/procedures.routes.js'
+import { purchaseOrdersRouter } from './purchase-orders/purchase-orders.routes.js'
+import { reportsRouter } from './reports/reports.routes.js'
+import { requestsRouter } from './requests/requests.routes.js'
+import { restaurantsRouter } from './restaurants/restaurants.routes.js'
+import { rolesRouter } from './roles/roles.routes.js'
+import { teamsRouter } from './teams/teams.routes.js'
+import { usersRouter } from './users/users.routes.js'
+import { vendorsRouter } from './vendors/vendors.routes.js'
+import { workOrdersRouter } from './work-orders/work-orders.routes.js'
+
+/** Everything under /api/v1. Each module registers its own router here. */
+export const apiRouter = Router()
+
+apiRouter.use(healthRouter)
+apiRouter.use(authRouter)
+apiRouter.use(dashboardRouter)
+apiRouter.use(meRouter)
+apiRouter.use(restaurantsRouter)
+apiRouter.use(locationsRouter)
+apiRouter.use(assetsRouter)
+apiRouter.use(requestsRouter)
+apiRouter.use(workOrdersRouter)
+apiRouter.use(maintenanceRouter)
+apiRouter.use(proceduresRouter)
+apiRouter.use(inspectionsRouter)
+apiRouter.use(inventoryRouter)
+apiRouter.use(vendorsRouter)
+apiRouter.use(purchaseOrdersRouter)
+apiRouter.use(notificationsRouter)
+apiRouter.use(documentsRouter)
+apiRouter.use(reportsRouter)
+apiRouter.use(auditRouter)
+apiRouter.use(jobsRouter)
+apiRouter.use(usersRouter)
+apiRouter.use(rolesRouter)
+apiRouter.use(teamsRouter)
+apiRouter.use(filesRouter)

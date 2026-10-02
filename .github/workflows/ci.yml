@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: maintainx
+          POSTGRES_PASSWORD: maintainx
+          POSTGRES_DB: maintainx_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U maintainx"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://maintainx:maintainx@localhost:5432/maintainx_test?schema=public
+      JWT_ACCESS_SECRET: ci-access-secret-ci-access-secret-ci-access-secret
+      JWT_REFRESH_SECRET: ci-refresh-secret-ci-refresh-secret-ci-refresh-secret
+      CORS_ORIGIN: http://localhost:5173
+      APP_URL: http://localhost:5173
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - name: Validate Prisma schema
+        run: npx prisma validate
+        working-directory: apps/server
+
+      - name: Apply migrations
+        run: npx prisma migrate deploy
+        working-directory: apps/server
+
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build

@@ -1,0 +1,62 @@
+/**
+ * Machine-readable error codes returned by the API as `{ error: { code, message } }`.
+ * The web client maps `code` to a translated, human-readable message
+ * (en / hi / gu); `message` is an English fallback for logs and API consumers.
+ */
+export const ERROR_CODES = {
+  // generic
+  VALIDATION_ERROR: 'VALIDATION_ERROR',
+  UNAUTHENTICATED: 'UNAUTHENTICATED',
+  FORBIDDEN: 'FORBIDDEN',
+  NOT_FOUND: 'NOT_FOUND',
+  CONFLICT: 'CONFLICT',
+  RATE_LIMITED: 'RATE_LIMITED',
+  PAYLOAD_TOO_LARGE: 'PAYLOAD_TOO_LARGE',
+  UNSUPPORTED_MEDIA_TYPE: 'UNSUPPORTED_MEDIA_TYPE',
+  INTERNAL_ERROR: 'INTERNAL_ERROR',
+  SERVICE_UNAVAILABLE: 'SERVICE_UNAVAILABLE',
+
+  // auth
+  INVALID_CREDENTIALS: 'INVALID_CREDENTIALS',
+  ACCOUNT_DISABLED: 'ACCOUNT_DISABLED',
+  ACCOUNT_LOCKED: 'ACCOUNT_LOCKED',
+  TOKEN_EXPIRED: 'TOKEN_EXPIRED',
+  TOKEN_INVALID: 'TOKEN_INVALID',
+  PASSWORD_TOO_WEAK: 'PASSWORD_TOO_WEAK',
+  PASSWORD_CHANGE_REQUIRED: 'PASSWORD_CHANGE_REQUIRED',
+
+  // domain
+  INVALID_TRANSITION: 'INVALID_TRANSITION',
+  CHECKLIST_INCOMPLETE: 'CHECKLIST_INCOMPLETE',
+  INSUFFICIENT_STOCK: 'INSUFFICIENT_STOCK',
+  RESTAURANT_MISMATCH: 'RESTAURANT_MISMATCH',
+  LAST_SUPER_ADMIN: 'LAST_SUPER_ADMIN',
+  SELF_APPROVAL_NOT_ALLOWED: 'SELF_APPROVAL_NOT_ALLOWED',
+  ALREADY_CONVERTED: 'ALREADY_CONVERTED',
+  FILE_TOO_LARGE: 'FILE_TOO_LARGE',
+  FILE_TYPE_NOT_ALLOWED: 'FILE_TYPE_NOT_ALLOWED',
+
+  // administration
+  ROLE_LOCKED: 'ROLE_LOCKED',
+  ROLE_IN_USE: 'ROLE_IN_USE',
+  CANNOT_MODIFY_SELF: 'CANNOT_MODIFY_SELF',
+  LOCATION_IN_USE: 'LOCATION_IN_USE',
+  CATEGORY_IN_USE: 'CATEGORY_IN_USE',
+  PROCEDURE_IN_USE: 'PROCEDURE_IN_USE',
+  INSPECTION_SUBMITTED: 'INSPECTION_SUBMITTED',
+  PART_IN_USE: 'PART_IN_USE',
+  VENDOR_IN_USE: 'VENDOR_IN_USE',
+} as const
+
+export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES]
+
+export interface ApiErrorBody {
+  error: {
+    code: ErrorCode
+    message: string
+    /** Zod field errors keyed by dotted path, e.g. { "email": ["Invalid email"] } */
+    fieldErrors?: Record<string, string[]>
+    /** Correlates with server logs; shown to users as "Reference: …" */
+    requestId?: string
+  }
+}
