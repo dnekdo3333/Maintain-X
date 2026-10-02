@@ -11,7 +11,7 @@
     "apps/*"
   ],
   "scripts": {
-    "postinstall": "npm run build -w @maintainx/shared",
+    "postinstall": "npm run build -w @maintainx/shared && npm run db:generate",
     "dev": "concurrently -k -n shared,api,web -c gray,blue,green \"npm run dev -w @maintainx/shared\" \"npm run dev -w @maintainx/server\" \"npm run dev -w @maintainx/web\"",
     "build": "npm run build -w @maintainx/shared && npm run build -w @maintainx/server && npm run build -w @maintainx/web",
     "lint": "eslint .",
