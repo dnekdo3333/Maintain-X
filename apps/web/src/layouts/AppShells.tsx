@@ -1,4 +1,18 @@
-import { Bell, ClipboardList, Home, Menu, ScanLine } from 'lucide-react'
+import {
+  Bell,
+  Building2,
+  CalendarDays,
+  ClipboardCheck,
+  ClipboardList,
+  Home,
+  Inbox,
+  LogOut,
+  Megaphone,
+  Menu,
+  Package,
+  ScanLine,
+  UserRound,
+} from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Navigate } from 'react-router'
 import { LanguageSwitcher } from '@/components/common/LanguageSwitcher'
@@ -53,6 +67,43 @@ export function AdminHome() {
   return <Navigate to={first === '/' ? '/account' : first} replace />
 }
 
+function WorkerSidebarFooter() {
+  const { t } = useTranslation()
+  const { user, logout } = useAuth()
+  return (
+    <div className="grid gap-2">
+      {user && (
+        <div className="flex items-center gap-3 rounded-lg px-2 py-1.5">
+          <span className="bg-brand flex size-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold">
+            {user.firstName.slice(0, 1)}
+            {user.lastName.slice(0, 1)}
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm font-medium">
+              {user.firstName} {user.lastName}
+            </span>
+            <span className="block truncate text-xs text-muted-foreground">
+              {user.roles[0]?.name}
+            </span>
+          </span>
+        </div>
+      )}
+      <div className="flex items-center gap-2">
+        <LanguageSwitcher className="h-9 flex-1" />
+        <button
+          type="button"
+          onClick={() => void logout()}
+          aria-label={t('actions.signOut')}
+          title={t('actions.signOut')}
+          className="flex size-9 items-center justify-center rounded-md border text-muted-foreground transition-colors hover:bg-danger-soft hover:text-danger-fg focus-visible:outline-2 focus-visible:outline-ring"
+        >
+          <LogOut className="size-4" aria-hidden />
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export function WorkerShell() {
   const { t } = useTranslation()
   const unread = useUnreadCount()
@@ -70,5 +121,15 @@ export function WorkerShell() {
     },
     { key: 'more', label: t('nav.more'), to: '/w/more', icon: Menu },
   ]
-  return <WorkerLayout tabs={tabs} />
+  // On desktops the sidebar shows these directly (on phones they're under More).
+  const moreItems: NavItem[] = [
+    { key: 'report', label: t('report.title'), to: '/w/report', icon: Megaphone },
+    { key: 'schedule', label: t('nav.schedule'), to: '/w/schedule', icon: CalendarDays },
+    { key: 'checklists', label: t('nav.checklists'), to: '/w/checklists', icon: ClipboardCheck },
+    { key: 'reports', label: t('report.mine'), to: '/w/reports', icon: Inbox },
+    { key: 'assets', label: t('nav.myAssets'), to: '/w/assets', icon: Package },
+    { key: 'restaurants', label: t('nav.myRestaurants'), to: '/w/restaurants', icon: Building2 },
+    { key: 'account', label: t('worker.profile'), to: '/w/account', icon: UserRound },
+  ]
+  return <WorkerLayout tabs={tabs} moreItems={moreItems} sidebarFooter={<WorkerSidebarFooter />} />
 }

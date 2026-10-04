@@ -78,7 +78,7 @@ export function TaskCard({
   )
 
   const classes = cn(
-    'flex items-center gap-3 rounded-lg border bg-background px-4 py-3',
+    'flex h-full items-center gap-3 rounded-xl border bg-card px-4 py-3 shadow-card',
     priority === 'CRITICAL' && !done && 'border-l-[3px] border-l-danger',
     className,
   )
@@ -89,7 +89,7 @@ export function TaskCard({
       to={to}
       className={cn(
         classes,
-        'transition-colors duration-(--duration-fast) hover:border-border-strong active:bg-muted/60',
+        'card-lift active:bg-muted/60',
         'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring',
       )}
     >

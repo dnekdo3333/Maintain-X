@@ -136,7 +136,8 @@ describe('accessibility (axe-core)', () => {
     )
     render(<RouterProvider router={router} />)
     await screen.findByRole('heading', { name: 'Task' })
-    expect(screen.queryByRole('navigation')).not.toBeInTheDocument()
+    // The phone tab bar is gone (the desktop sidebar, hidden by CSS on phones, stays).
+    expect(screen.queryByRole('navigation', { name: 'Main navigation' })).not.toBeInTheDocument()
   })
 
   it('form with validation errors showing', async () => {

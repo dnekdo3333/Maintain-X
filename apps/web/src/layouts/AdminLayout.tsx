@@ -1,7 +1,7 @@
 import { Menu } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { NavLink, Outlet } from 'react-router'
+import { NavLink, Outlet, useLocation } from 'react-router'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
 import { cn } from '@/utils/cn'
@@ -29,7 +29,9 @@ function SidebarNav({ nav, onNavigate }: { nav: NavGroup[]; onNavigate?: () => v
       {nav.map((group) => (
         <div key={group.key} className="mb-4 last:mb-0">
           {group.label && (
-            <p className="mb-1 px-2 text-xs font-medium text-muted-foreground">{group.label}</p>
+            <p className="mb-1.5 px-2.5 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
+              {group.label}
+            </p>
           )}
           <ul className="grid gap-px">
             {group.items.map((item) => (
@@ -40,10 +42,11 @@ function SidebarNav({ nav, onNavigate }: { nav: NavGroup[]; onNavigate?: () => v
                   onClick={onNavigate}
                   className={({ isActive }) =>
                     cn(
-                      'flex h-8 items-center gap-2.5 rounded-md px-2 text-sm text-sidebar-foreground',
-                      'transition-colors duration-(--duration-fast) hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
+                      'relative flex h-9 items-center gap-2.5 rounded-lg px-2.5 text-sm text-sidebar-foreground',
+                      'transition-all duration-(--duration-base) hover:translate-x-0.5 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
                       'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring',
-                      isActive && 'bg-sidebar-accent font-medium text-sidebar-accent-foreground',
+                      isActive &&
+                        'bg-info-soft font-semibold text-info-fg before:absolute before:inset-y-1.5 before:-left-3 before:w-1 before:rounded-r-full before:bg-primary hover:translate-x-0 hover:bg-info-soft hover:text-info-fg',
                     )
                   }
                 >
@@ -53,7 +56,7 @@ function SidebarNav({ nav, onNavigate }: { nav: NavGroup[]; onNavigate?: () => v
                         aria-hidden
                         className={cn(
                           'size-4 shrink-0',
-                          isActive ? 'text-foreground' : 'text-muted-foreground',
+                          isActive ? 'text-primary' : 'text-muted-foreground',
                         )}
                       />
                       <span className="truncate">{item.label}</span>
@@ -88,6 +91,7 @@ export function AdminLayout({
 }: AdminLayoutProps) {
   const { t } = useTranslation()
   const [mobileOpen, setMobileOpen] = useState(false)
+  const location = useLocation()
 
   const sidebar = (onNavigate?: () => void) => (
     <>
@@ -102,15 +106,15 @@ export function AdminLayout({
   )
 
   return (
-    <div className="min-h-dvh bg-canvas">
+    <div className="bg-app min-h-dvh">
       <SkipLink />
 
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 flex-col border-r border-sidebar-border bg-sidebar lg:flex">
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-sidebar-border bg-background/90 backdrop-blur lg:flex">
         {sidebar()}
       </aside>
 
-      <div className="flex min-h-dvh flex-col lg:pl-60">
-        <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-3 border-b bg-background px-4 lg:px-6">
+      <div className="flex min-h-dvh flex-col lg:pl-64">
+        <header className="glass sticky top-0 z-20 flex h-14 shrink-0 items-center gap-3 border-b px-4 lg:px-6">
           <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
             <SheetTrigger asChild>
               <Button
@@ -136,7 +140,9 @@ export function AdminLayout({
           tabIndex={-1}
           className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 outline-none lg:px-8"
         >
-          {children ?? <Outlet />}
+          <div key={location.pathname} className="animate-rise">
+            {children ?? <Outlet />}
+          </div>
         </main>
       </div>
     </div>

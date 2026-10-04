@@ -2,12 +2,12 @@ import { Wrench } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '@/utils/cn'
 
-/** Product mark + name. Plain on purpose; swap the icon for a real logo when available. */
+/** Product mark + name. Swap the icon for a real logo when available. */
 export function BrandMark({ className, subtitle }: { className?: string; subtitle?: string }) {
   const { t } = useTranslation()
   return (
     <div className={cn('flex items-center gap-2.5', className)}>
-      <span className="flex size-7 items-center justify-center rounded-md bg-foreground text-background">
+      <span className="bg-brand flex size-8 items-center justify-center rounded-lg shadow-[0_4px_12px_-4px_oklch(0.45_0.18_270/0.6)]">
         <Wrench className="size-4" aria-hidden />
       </span>
       <span className="grid leading-tight">

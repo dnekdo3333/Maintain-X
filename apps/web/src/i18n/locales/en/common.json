@@ -330,7 +330,8 @@
     "groupInsights": "Insights",
     "reports": "Reports",
     "documents": "Documents",
-    "audit": "Audit log"
+    "audit": "Audit log",
+    "menu": "Menu"
   },
   "time": {
     "justNow": "Just now",
@@ -362,7 +363,13 @@
     "signOutEverywhere": "Sign out of all devices",
     "signOutEverywhereBody": "You’ll be signed out here and on every other phone or computer.",
     "offlineTitle": "Can’t reach the server",
-    "offlineBody": "Check your internet connection and try again."
+    "offlineBody": "Check your internet connection and try again.",
+    "heroTitle": "Every repair, checklist and spare part in one place.",
+    "heroBody": "Keep all your restaurants running: report problems, assign work, track maintenance and stock.",
+    "featureWork": "Work orders from report to sign-off",
+    "featureQr": "QR codes on every machine",
+    "featureChecklists": "Daily checklists and preventive maintenance",
+    "featureAlerts": "Instant alerts for what needs attention"
   },
   "account": {
     "title": "My account",
@@ -737,7 +744,16 @@
     "noOpenTasks": "No open tasks",
     "moreTitle": "More",
     "profile": "Profile",
-    "language": "Language"
+    "language": "Language",
+    "appSubtitle": "Technician app",
+    "shortcuts": "Shortcuts",
+    "quickActions": "Quick actions",
+    "heroBusy_one": "You have {{count}} task waiting today.",
+    "heroBusy_other": "You have {{count}} tasks waiting today.",
+    "heroFree": "Nothing urgent right now. Great work!",
+    "reportHint": "Something broken? Tell us in seconds",
+    "scanHint": "Open any machine from its QR code",
+    "checklistsHint": "Opening, closing and safety checks"
   },
   "restaurantDetail": {
     "tabDetails": "Details",

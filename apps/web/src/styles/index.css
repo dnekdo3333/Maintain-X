@@ -5,7 +5,8 @@
  * Design tokens — the single place colours, radii, type and motion are defined.
  *
  * Rules
- *  - Neutral slate base + ONE accent (blue). No gradients, no glass, no decorative shadows.
+ *  - Neutral slate base + ONE accent (blue). Depth comes from soft shadows; gradients are
+ *    reserved for brand surfaces (hero, login, brand mark) and never carry text contrast alone.
  *  - Semantic tones are reserved for status. Each tone has three steps:
  *      --{tone}        solid  (dots, borders, filled controls)
  *      --{tone}-soft   soft   (badge / callout backgrounds)
@@ -80,11 +81,20 @@
   --sidebar-accent-foreground: oklch(0.21 0.02 262);
   --sidebar-border: var(--border);
 
-  --radius: 6px;
+  --radius: 10px;
 
-  /* Motion: short and only where it aids orientation. */
+  /* Depth */
+  --shadow-card: 0 1px 2px oklch(0.21 0.02 262 / 0.05), 0 1px 3px oklch(0.21 0.02 262 / 0.04);
+  --shadow-card-hover:
+    0 10px 24px -8px oklch(0.3 0.08 262 / 0.18), 0 2px 6px oklch(0.21 0.02 262 / 0.06);
+  /* Brand surfaces (hero, login, brand mark). Text on them is white and ≥ 4.5:1 at the darkest stop. */
+  --brand-from: oklch(0.42 0.17 262);
+  --brand-to: oklch(0.5 0.19 285);
+
+  /* Motion: short, purposeful, and switched off for prefers-reduced-motion. */
   --duration-fast: 120ms;
   --duration-base: 180ms;
+  --duration-slow: 320ms;
   --ease-out: cubic-bezier(0.2, 0, 0, 1);
 }
 
@@ -163,6 +173,8 @@
   --text-2xl: 1.5rem;
   --text-2xl--line-height: 2rem;
 
+  --shadow-card: var(--shadow-card);
+  --shadow-card-hover: var(--shadow-card-hover);
   --shadow-popover:
     0 4px 16px -4px oklch(0.21 0.02 262 / 0.12), 0 1px 3px oklch(0.21 0.02 262 / 0.06);
 }
@@ -226,4 +238,129 @@
 /* Bottom padding for content above the worker tab bar / sticky action bar on notched phones. */
 @utility pb-safe {
   padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* ---------------------------------------------------------------- brand & motion */
+
+/* Brand gradient surface: hero cards, login panel, brand mark. */
+@utility bg-brand {
+  background-image:
+    radial-gradient(120% 120% at 100% 0%, oklch(0.62 0.17 290 / 0.55) 0%, transparent 55%),
+    linear-gradient(135deg, var(--brand-from), var(--brand-to));
+  color: white;
+}
+
+/* Soft tinted canvas with a faint glow at the top. */
+@utility bg-app {
+  background-color: var(--canvas);
+  background-image:
+    radial-gradient(70% 45% at 85% -10%, oklch(0.93 0.04 262 / 0.7) 0%, transparent 70%),
+    radial-gradient(50% 35% at 0% 0%, oklch(0.95 0.03 290 / 0.6) 0%, transparent 70%);
+  background-attachment: fixed;
+}
+
+/* Frosted bar for sticky headers. */
+@utility glass {
+  background-color: oklch(1 0 0 / 0.78);
+  backdrop-filter: saturate(1.6) blur(12px);
+  -webkit-backdrop-filter: saturate(1.6) blur(12px);
+}
+
+/* Cards that respond to the pointer: lift + deeper shadow. */
+@utility card-lift {
+  transition:
+    transform var(--duration-base) var(--ease-out),
+    box-shadow var(--duration-base) var(--ease-out),
+    border-color var(--duration-base) var(--ease-out);
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-card-hover);
+    border-color: var(--border-strong);
+  }
+  &:active {
+    transform: translateY(0) scale(0.99);
+  }
+}
+
+/* Entrance: fade up. Used for pages and cards. */
+@utility animate-rise {
+  animation: mx-rise var(--duration-slow) var(--ease-out) both;
+}
+
+/* Children enter one after another. */
+@utility stagger {
+  & > * {
+    animation: mx-rise var(--duration-slow) var(--ease-out) both;
+  }
+  & > *:nth-child(2) {
+    animation-delay: 40ms;
+  }
+  & > *:nth-child(3) {
+    animation-delay: 80ms;
+  }
+  & > *:nth-child(4) {
+    animation-delay: 120ms;
+  }
+  & > *:nth-child(5) {
+    animation-delay: 160ms;
+  }
+  & > *:nth-child(6) {
+    animation-delay: 200ms;
+  }
+  & > *:nth-child(7) {
+    animation-delay: 240ms;
+  }
+  & > *:nth-child(8) {
+    animation-delay: 280ms;
+  }
+  & > *:nth-child(n + 9) {
+    animation-delay: 320ms;
+  }
+}
+
+@utility animate-pop {
+  animation: mx-pop var(--duration-base) var(--ease-out) both;
+}
+
+/* Loading placeholder sheen. */
+@utility animate-shimmer {
+  background-image: linear-gradient(
+    90deg,
+    var(--muted) 0%,
+    oklch(0.985 0.002 264) 50%,
+    var(--muted) 100%
+  );
+  background-size: 200% 100%;
+  animation: mx-shimmer 1.4s linear infinite;
+}
+
+@keyframes mx-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes mx-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes mx-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
 }

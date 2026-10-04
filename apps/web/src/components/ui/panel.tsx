@@ -2,14 +2,17 @@ import type { ComponentProps } from 'react'
 import { cn } from '@/utils/cn'
 
 /**
- * Bordered content container. Deliberately plain: hairline border, no shadow,
- * small radius. Use instead of large decorative "cards".
+ * Content container: hairline border, soft depth, rounded corners. Enters with a
+ * short fade-up so pages feel alive without slowing anyone down.
  */
 export function Panel({ className, ...props }: ComponentProps<'section'>) {
   return (
     <section
       data-slot="panel"
-      className={cn('rounded-lg border bg-card text-card-foreground', className)}
+      className={cn(
+        'animate-rise rounded-xl border bg-card text-card-foreground shadow-card',
+        className,
+      )}
       {...props}
     />
   )

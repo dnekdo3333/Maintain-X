@@ -164,7 +164,10 @@ describe('worker app', () => {
   it('more → my restaurants with tap-to-call', async () => {
     const { container } = renderAt('/w/more')
     const user = userEvent.setup()
-    await user.click(await screen.findByRole('link', { name: 'My Restaurants' }))
+    // On the phone screen (the desktop sidebar has the same link).
+    await user.click(
+      await within(await screen.findByRole('main')).findByRole('link', { name: 'My Restaurants' }),
+    )
     const call = await screen.findByRole('link', { name: 'Call Restaurant 1' })
     expect(call).toHaveAttribute('href', 'tel:+919876543210')
     expect(screen.getByText('Open 09:00–23:00')).toBeInTheDocument()

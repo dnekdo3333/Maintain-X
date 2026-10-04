@@ -7,7 +7,7 @@ import { TaskCard } from '@/components/worker/TaskCard'
 export function WorkerTaskList({ tasks, now }: { tasks: WorkerTask[]; now?: Date }) {
   const { t } = useTranslation()
   return (
-    <ul className="grid gap-2">
+    <ul className="stagger grid gap-2.5 md:grid-cols-2">
       {tasks.map((task) => (
         <li key={task.id}>
           <TaskCard

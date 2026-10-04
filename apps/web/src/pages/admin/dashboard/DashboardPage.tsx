@@ -8,11 +8,16 @@ import {
 import { useQuery } from '@tanstack/react-query'
 import {
   AlertTriangle,
+  Building2,
+  CalendarCheck2,
   CalendarClock,
   CheckCheck,
+  ClipboardList,
   Clock,
   History,
+  Package,
   ShieldCheck,
+  Timer,
   type LucideIcon,
 } from 'lucide-react'
 import type { ReactNode } from 'react'
@@ -20,7 +25,6 @@ import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router'
 import { EmptyState } from '@/components/common/EmptyState'
 import { ErrorState } from '@/components/common/ErrorState'
-import { PageHeader } from '@/components/common/PageHeader'
 import { StatusBadge } from '@/components/common/StatusBadge'
 import { Panel, PanelHeader, PanelTitle } from '@/components/ui/panel'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -32,6 +36,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { useCurrentUser } from '@/contexts/AuthContext'
 import { useRestaurantScope } from '@/contexts/RestaurantScopeContext'
 import { http } from '@/services/http'
 import { cn } from '@/utils/cn'
@@ -45,6 +50,12 @@ import {
 import { looseT } from '@/utils/i18n'
 
 const REFRESH_MS = 60_000
+
+function greetingKey(hour: number) {
+  if (hour < 12) return 'worker.greetingMorning' as const
+  if (hour < 17) return 'worker.greetingAfternoon' as const
+  return 'worker.greetingEvening' as const
+}
 
 function useDashboard(restaurantId: string | null) {
   return useQuery({
@@ -60,20 +71,46 @@ function useDashboard(restaurantId: string | null) {
 
 // ---------------------------------------------------------------------------
 
+type KpiTone = 'neutral' | 'info' | 'danger' | 'warning' | 'success' | 'review'
+
+const KPI_TONE: Record<KpiTone, string> = {
+  neutral: 'bg-neutral-soft text-neutral-fg',
+  info: 'bg-info-soft text-info-fg',
+  danger: 'bg-danger-soft text-danger-fg',
+  warning: 'bg-warning-soft text-warning-fg',
+  success: 'bg-success-soft text-success-fg',
+  review: 'bg-review-soft text-review-fg',
+}
+
 interface KpiProps {
   label: string
   value: ReactNode
+  icon: LucideIcon
+  tone: KpiTone
   hint?: string
   /** Status only when it needs attention; shown as icon + text, never colour alone. */
   alert?: string
+  /** Where the number leads. */
+  to?: string
 }
 
-function Kpi({ label, value, hint, alert }: KpiProps) {
-  return (
-    <div className="flex min-w-0 flex-col gap-1 px-4 py-3">
-      <dt className="truncate text-13 text-muted-foreground">{label}</dt>
-      <dd className="flex flex-col gap-1">
-        <span className="text-2xl leading-tight font-semibold tabular text-foreground">
+function Kpi({ label, value, icon: Icon, tone, hint, alert, to }: KpiProps) {
+  const body = (
+    <>
+      <div className="flex items-start justify-between gap-2">
+        <span className={cn('flex size-10 items-center justify-center rounded-xl', KPI_TONE[tone])}>
+          <Icon className="size-5" aria-hidden />
+        </span>
+        {alert && (
+          <span className="relative mt-1 flex size-2.5" aria-hidden>
+            <span className="absolute inline-flex size-full animate-ping rounded-full bg-danger opacity-60" />
+            <span className="relative inline-flex size-2.5 rounded-full bg-danger" />
+          </span>
+        )}
+      </div>
+      <span className="mt-4 truncate text-13 text-muted-foreground">{label}</span>
+      <span className="flex flex-col gap-1">
+        <span className="text-3xl leading-tight font-semibold tracking-tight tabular text-foreground">
           {value}
         </span>
         {alert ? (
@@ -82,9 +119,29 @@ function Kpi({ label, value, hint, alert }: KpiProps) {
           </span>
         ) : hint ? (
           <span className="truncate text-xs text-muted-foreground">{hint}</span>
-        ) : null}
-      </dd>
-    </div>
+        ) : (
+          <span className="text-xs">&nbsp;</span>
+        )}
+      </span>
+    </>
+  )
+  const classes = cn(
+    'flex h-full flex-col rounded-xl border bg-card p-4 shadow-card',
+    alert && 'border-danger/30',
+  )
+  return (
+    <li className="min-w-0">
+      {to ? (
+        <Link
+          to={to}
+          className={cn(classes, 'card-lift focus-visible:outline-2 focus-visible:outline-ring')}
+        >
+          {body}
+        </Link>
+      ) : (
+        <div className={classes}>{body}</div>
+      )}
+    </li>
   )
 }
 
@@ -93,38 +150,67 @@ function KpiStrip({ data }: { data: DashboardSummary }) {
   const c = data.counts
   const n = (v: number) => formatNumber(v)
   return (
-    <Panel>
-      <dl className="grid grid-cols-2 divide-y sm:grid-cols-4 sm:divide-y-0 lg:grid-cols-8 [&>*]:border-border sm:[&>*:nth-child(n+5)]:border-t lg:[&>*:nth-child(n+5)]:border-t-0 lg:divide-x">
-        <Kpi label={t('dashboard.kpiRestaurants')} value={n(c.restaurants)} />
-        <Kpi label={t('dashboard.kpiOpen')} value={n(c.open)} />
-        <Kpi
-          label={t('dashboard.kpiOverdue')}
-          value={n(c.overdue)}
-          alert={c.overdue > 0 ? t('dashboard.needsAttention') : undefined}
-        />
-        <Kpi label={t('dashboard.kpiInProgress')} value={n(c.inProgress)} />
-        <Kpi
-          label={t('dashboard.kpiCompleted')}
-          value={n(c.completed30d)}
-          hint={t('dashboard.kpiCompletedHint')}
-        />
-        <Kpi
-          label={t('dashboard.kpiCritical')}
-          value={n(c.critical)}
-          alert={c.critical > 0 ? t('dashboard.needsAttention') : undefined}
-        />
-        <Kpi
-          label={t('dashboard.kpiLowStock')}
-          value={n(c.lowStock)}
-          alert={c.lowStock > 0 ? t('dashboard.needsAttention') : undefined}
-        />
-        <Kpi
-          label={t('dashboard.kpiPm')}
-          value={data.pmCompliance === null ? '—' : `${data.pmCompliance}%`}
-          hint={data.pmCompliance === null ? t('dashboard.kpiPmNone') : t('dashboard.kpiPmHint')}
-        />
-      </dl>
-    </Panel>
+    <ul className="stagger grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-8">
+      <Kpi
+        label={t('dashboard.kpiRestaurants')}
+        value={n(c.restaurants)}
+        icon={Building2}
+        tone="neutral"
+        to="/restaurants"
+      />
+      <Kpi
+        label={t('dashboard.kpiOpen')}
+        value={n(c.open)}
+        icon={ClipboardList}
+        tone="info"
+        to="/work-orders?view=active"
+      />
+      <Kpi
+        label={t('dashboard.kpiOverdue')}
+        value={n(c.overdue)}
+        icon={Clock}
+        tone="danger"
+        alert={c.overdue > 0 ? t('dashboard.needsAttention') : undefined}
+        to="/work-orders?view=overdue"
+      />
+      <Kpi
+        label={t('dashboard.kpiInProgress')}
+        value={n(c.inProgress)}
+        icon={Timer}
+        tone="warning"
+        to="/work-orders?status=IN_PROGRESS"
+      />
+      <Kpi
+        label={t('dashboard.kpiCompleted')}
+        value={n(c.completed30d)}
+        icon={CheckCheck}
+        tone="success"
+        hint={t('dashboard.kpiCompletedHint')}
+      />
+      <Kpi
+        label={t('dashboard.kpiCritical')}
+        value={n(c.critical)}
+        icon={AlertTriangle}
+        tone="danger"
+        alert={c.critical > 0 ? t('dashboard.needsAttention') : undefined}
+        to="/work-orders?priority=CRITICAL"
+      />
+      <Kpi
+        label={t('dashboard.kpiLowStock')}
+        value={n(c.lowStock)}
+        icon={Package}
+        tone="warning"
+        alert={c.lowStock > 0 ? t('dashboard.needsAttention') : undefined}
+        to="/inventory?low=1"
+      />
+      <Kpi
+        label={t('dashboard.kpiPm')}
+        value={data.pmCompliance === null ? '—' : `${data.pmCompliance}%`}
+        icon={CalendarCheck2}
+        tone="review"
+        hint={data.pmCompliance === null ? t('dashboard.kpiPmNone') : t('dashboard.kpiPmHint')}
+      />
+    </ul>
   )
 }
 
@@ -293,17 +379,29 @@ export function DashboardPage() {
   const { t } = useTranslation()
   const { restaurantId } = useRestaurantScope()
   const query = useDashboard(restaurantId)
+  const user = useCurrentUser()
 
   return (
     <>
-      <PageHeader
-        title={t('dashboard.title')}
-        description={
-          query.data
-            ? t('dashboard.updated', { time: formatTime(query.data.generatedAt) })
-            : undefined
-        }
-      />
+      <section className="bg-brand animate-rise relative mb-6 overflow-hidden rounded-2xl px-6 py-6 shadow-[0_12px_32px_-12px_oklch(0.42_0.17_262/0.55)] sm:px-8">
+        <span
+          aria-hidden
+          className="absolute -top-12 -right-12 size-48 rounded-full bg-white/10 blur-2xl"
+        />
+        <span
+          aria-hidden
+          className="absolute -bottom-20 left-1/4 size-56 rounded-full bg-white/5"
+        />
+        <p className="relative text-sm font-medium text-white/85">
+          {t(greetingKey(new Date().getHours()), { name: user.firstName })}
+        </p>
+        <h1 className="relative mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">
+          {t('dashboard.title')}
+        </h1>
+        <p className="relative mt-1 text-sm text-white/85">
+          {query.data ? t('dashboard.updated', { time: formatTime(query.data.generatedAt) }) : ' '}
+        </p>
+      </section>
       {query.isPending ? (
         <DashboardSkeleton />
       ) : query.isError ? (

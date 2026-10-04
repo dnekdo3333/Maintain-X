@@ -23,10 +23,15 @@ export function BottomActionBar({ children, hint, className }: BottomActionBarPr
             : 'h-[calc(5rem+env(safe-area-inset-bottom))]'
         }
       />
-      <div className="fixed inset-x-0 bottom-0 z-30 border-t bg-background pb-safe">
-        <div className={cn('mx-auto grid max-w-lg gap-2 px-4 py-3', className)}>
+      <div className="glass fixed inset-x-0 bottom-0 z-30 border-t pb-safe lg:left-64">
+        <div
+          className={cn('mx-auto grid max-w-2xl gap-2 px-4 py-3 lg:max-w-5xl lg:px-8', className)}
+        >
           {hint && <p className="text-center text-13 text-muted-foreground">{hint}</p>}
-          <div className="flex gap-2 *:flex-1">{children}</div>
+          {/* Phone: full-width buttons in thumb reach. Desktop: right-aligned. */}
+          <div className="flex gap-2 *:flex-1 lg:justify-end lg:*:min-w-44 lg:*:flex-none">
+            {children}
+          </div>
         </div>
       </div>
     </>

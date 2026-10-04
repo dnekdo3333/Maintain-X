@@ -18,7 +18,7 @@ export function WorkerPageHeader({ title, backTo, actions, className }: WorkerPa
   return (
     <header
       className={cn(
-        'sticky top-0 z-20 flex h-14 items-center gap-1 border-b bg-background px-2',
+        'glass sticky top-0 z-20 flex h-14 items-center gap-1 border-b px-2 lg:h-16 lg:px-6',
         !backTo && 'px-4',
         className,
       )}
@@ -32,7 +32,9 @@ export function WorkerPageHeader({ title, backTo, actions, className }: WorkerPa
           <ArrowLeft className="size-5" aria-hidden />
         </Link>
       )}
-      <h1 className="min-w-0 flex-1 truncate text-base font-semibold">{title}</h1>
+      <h1 className="min-w-0 flex-1 truncate text-base font-semibold lg:text-xl lg:tracking-tight">
+        {title}
+      </h1>
       {actions && <div className="flex shrink-0 items-center gap-1">{actions}</div>}
     </header>
   )

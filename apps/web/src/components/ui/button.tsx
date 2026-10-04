@@ -7,7 +7,7 @@ import { Spinner } from './spinner'
 export const buttonVariants = cva(
   [
     'inline-flex shrink-0 items-center justify-center gap-2 rounded-md text-sm font-medium whitespace-nowrap select-none',
-    'transition-colors duration-(--duration-fast)',
+    'transition-[color,background-color,border-color,box-shadow,transform] duration-(--duration-fast) active:scale-[0.97]',
     'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring',
     'disabled:pointer-events-none disabled:opacity-50 aria-busy:cursor-progress',
     "[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
@@ -15,7 +15,8 @@ export const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: 'bg-primary text-primary-foreground hover:bg-primary-hover',
+        default:
+          'bg-primary text-primary-foreground shadow-[0_1px_2px_oklch(0.3_0.1_262/0.25)] hover:bg-primary-hover hover:shadow-[0_4px_12px_-2px_oklch(0.45_0.17_262/0.4)]',
         secondary:
           'border border-input bg-background text-foreground hover:bg-accent hover:text-accent-foreground',
         ghost: 'text-foreground hover:bg-accent hover:text-accent-foreground',
