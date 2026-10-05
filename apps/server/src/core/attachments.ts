@@ -16,6 +16,7 @@ import multer from 'multer'
 import { env } from '../config/env.js'
 import { storage } from '../storage/index.js'
 import { AppError, PayloadTooLargeError, ValidationError } from './errors.js'
+import { optimizePhoto } from './images.js'
 import { prisma } from './prisma.js'
 
 const MB = 1024 * 1024
@@ -72,7 +73,7 @@ function safeFileName(name: string, ext: string): string {
 export async function saveAttachments(
   files: Express.Multer.File[] | undefined,
   owner: { type: AttachmentOwnerType; id: string },
-  uploadedById: string,
+  uploadedById: string | null,
   db: Prisma.TransactionClient | typeof prisma = prisma,
   /** Evidence stage and caption for work-order photos. */
   meta: { stage?: EvidenceStage | null; caption?: string | null } = {},
@@ -111,18 +112,29 @@ export async function saveAttachments(
   const folder = `attachments/${now.getUTCFullYear()}/${String(now.getUTCMonth() + 1).padStart(2, '0')}`
   const ids: string[] = []
   for (const c of checked) {
-    const ext = EXTENSION[c.mime]!
-    const key = `${folder}/${randomUUID()}.${ext}`
-    await storage.put(key, c.file.buffer, { mimeType: c.mime })
+    // Photos are re-encoded small (WebP) with a thumbnail for lists.
+    const photo = c.kind === 'PHOTO' ? await optimizePhoto(c.file.buffer) : null
+    const optimized = !!photo && photo.main !== c.file.buffer
+    const mime = optimized ? 'image/webp' : c.mime
+    const ext = EXTENSION[mime]!
+    const id = randomUUID()
+    const key = `${folder}/${id}.${ext}`
+    const body = optimized ? photo.main : c.file.buffer
+    await storage.put(key, body, { mimeType: mime })
+    const thumbKey = photo ? `${folder}/${id}-thumb.webp` : null
+    if (photo && thumbKey) await storage.put(thumbKey, photo.thumb, { mimeType: 'image/webp' })
     const row = await db.attachment.create({
       data: {
         ownerType: owner.type,
         ownerId: owner.id,
         kind: c.kind,
         storageKey: key,
+        thumbKey,
+        width: photo?.width ?? null,
+        height: photo?.height ?? null,
         fileName: safeFileName(c.file.originalname, ext),
-        mimeType: c.mime,
-        sizeBytes: c.file.size,
+        mimeType: mime,
+        sizeBytes: body.length + (photo?.thumb.length ?? 0),
         stage: meta.stage ?? null,
         caption: meta.caption || null,
         uploadedById,
@@ -154,12 +166,24 @@ export async function listAttachments(
       fileName: r.fileName,
       mimeType: r.mimeType,
       sizeBytes: r.sizeBytes,
-      url: await storage.getSignedUrl(r.storageKey, {
-        expiresInSeconds: SIGNED_URL_SECONDS,
-        mimeType: r.mimeType,
-        fileName: r.fileName,
-        disposition: 'inline',
-      }),
+      url: r.fileRemovedAt
+        ? ''
+        : await storage.getSignedUrl(r.storageKey, {
+            expiresInSeconds: SIGNED_URL_SECONDS,
+            mimeType: r.mimeType,
+            fileName: r.fileName,
+            disposition: 'inline',
+          }),
+      thumbUrl:
+        r.thumbKey && !r.fileRemovedAt
+          ? await storage.getSignedUrl(r.thumbKey, {
+              expiresInSeconds: SIGNED_URL_SECONDS,
+              mimeType: 'image/webp',
+              fileName: r.fileName,
+              disposition: 'inline',
+            })
+          : null,
+      removed: !!r.fileRemovedAt,
       uploadedBy: r.uploadedBy,
       createdAt: r.createdAt.toISOString(),
     }

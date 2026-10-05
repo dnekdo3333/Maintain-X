@@ -43,6 +43,7 @@ import { adminKeys, useTeams, useUsers } from '@/hooks/useAdminQueries'
 import { restaurantsApi } from '@/services/admin.service'
 import { useAssets } from '@/services/assets.service'
 import { LocationsPanel } from './LocationsPanel'
+import { PortalPanel } from './PortalPanel'
 import { RestaurantForm } from './RestaurantsPage'
 
 /** The restaurant at a glance: everything that hangs off it, counted. */
@@ -389,6 +390,7 @@ export function RestaurantDetailPage() {
               />
             </PanelBody>
           </Panel>
+          <PortalPanel portalId={r.portalId} name={r.name} />
         </TabsContent>
         <TabsContent value="locations" className="max-w-3xl">
           {tab === 'locations' && <LocationsPanel restaurantId={r.id} />}

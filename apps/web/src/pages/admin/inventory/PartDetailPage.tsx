@@ -10,7 +10,11 @@ import { DetailList } from '@/components/common/DetailList'
 import { ErrorState } from '@/components/common/ErrorState'
 import { PageHeader } from '@/components/common/PageHeader'
 import { PartForm } from '@/components/inventory/PartForm'
-import { AdjustStockDialog, StockSettingsDialog } from '@/components/inventory/StockDialogs'
+import {
+  AdjustStockDialog,
+  StockSettingsDialog,
+  TransferStockDialog,
+} from '@/components/inventory/StockDialogs'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Panel, PanelBody, PanelHeader, PanelTitle } from '@/components/ui/panel'
@@ -53,6 +57,7 @@ function Detail({ p, back }: { p: PartDetail; back: { to: string; label: string 
   const restaurants = useRestaurants()
   const [editing, setEditing] = useState(false)
   const [adjusting, setAdjusting] = useState<string | null>(null)
+  const [moving, setMoving] = useState<StockLevel | null>(null)
   const [settings, setSettings] = useState<StockLevel | null>(null)
   const [archiving, setArchiving] = useState(false)
   const archive = useInvalidatingMutation(() => partsApi.archive(p.id), [buyKeys.parts])
@@ -205,6 +210,11 @@ function Detail({ p, back }: { p: PartDetail; back: { to: string; label: string 
                       >
                         {t('stock.adjust')}
                       </Button>
+                      {l.available > 0 && (restaurants.data?.length ?? 0) > 1 && (
+                        <Button size="sm" variant="ghost" onClick={() => setMoving(l)}>
+                          {t('transfer.open')}
+                        </Button>
+                      )}
                       <Button size="sm" variant="ghost" onClick={() => setSettings(l)}>
                         {t('stock.settings')}
                       </Button>
@@ -344,6 +354,15 @@ function Detail({ p, back }: { p: PartDetail; back: { to: string; label: string 
           onOpenChange={(o) => !o && setAdjusting(null)}
           restaurants={restaurants.data}
           restaurantId={adjusting || undefined}
+        />
+      )}
+      {moving && restaurants.data && (
+        <TransferStockDialog
+          part={p}
+          open
+          onOpenChange={(o) => !o && setMoving(null)}
+          from={moving}
+          restaurants={restaurants.data}
         />
       )}
       {settings && (

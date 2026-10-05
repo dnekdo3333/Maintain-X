@@ -4,10 +4,12 @@ import {
   procedureSchema,
   type ProcedureDetail,
   type ProcedureInput,
+  type StepCondition,
 } from '@maintainx/shared'
 import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { useFieldArray } from 'react-hook-form'
+import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useParams } from 'react-router'
 import { z } from 'zod'
@@ -38,6 +40,14 @@ import { mxKeys, proceduresApi, useProcedure } from '@/services/maintenance.serv
 import { describeError, reportError } from '@/utils/errors'
 import { enumLabel, translateValidationMessage } from '@/utils/i18n'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 
 const ALL = '__all__'
 const NO_CATEGORY = '__none__'
@@ -59,6 +69,7 @@ const blankStep = (): Values['steps'][number] => ({
   required: true,
   options: [],
   requirePhoto: false,
+  showIf: null,
 })
 
 export function ProcedureEditorPage() {
@@ -106,7 +117,14 @@ function ProcedureView({ p, back }: { p: ProcedureDetail; back: { to: string; la
       {p.description && <p className="mb-4 text-sm whitespace-pre-wrap">{p.description}</p>}
       <Panel>
         <ol className="divide-y">
-          {p.steps.map((s) => (
+          {p.steps.map((s) =>
+            s.inputType === 'SECTION' ? (
+              <li key={s.id} className="bg-muted/50 px-4 py-2">
+                <p className="text-13 font-semibold tracking-wide text-muted-foreground uppercase">
+                  {s.position}. {s.title}
+                </p>
+              </li>
+            ) : (
             <li key={s.id} className="grid gap-0.5 px-4 py-3">
               <p className="text-sm font-medium">
                 {s.position}. {s.title}
@@ -123,8 +141,17 @@ function ProcedureView({ p, back }: { p: ProcedureDetail; back: { to: string; la
                 {s.requirePhoto && ` · ${t('checklist.photoRequired')}`}
               </p>
               {s.instruction && <p className="text-13">{s.instruction}</p>}
+              {s.showIf && (
+                <p className="text-xs text-muted-foreground">
+                  {t('procedures.showIfSummary', {
+                    step: s.showIf.step,
+                    answer: conditionAnswerLabel(t, s.showIf.answer),
+                  })}
+                </p>
+              )}
             </li>
-          ))}
+            ),
+          )}
         </ol>
       </Panel>
     </>
@@ -162,6 +189,7 @@ function Editor({
             required: s.required,
             options: s.options,
             requirePhoto: s.requirePhoto,
+            showIf: s.showIf,
           })),
         }
       : {
@@ -364,6 +392,18 @@ function Editor({
                       label={t('procedures.instruction')}
                       optional
                     />
+                    {types[i] !== 'SECTION' && i > 0 && (
+                      <ConditionPicker
+                        index={i}
+                        steps={form.watch('steps')}
+                        value={form.watch(`steps.${i}.showIf`) ?? null}
+                        onChange={(next) =>
+                          form.setValue(`steps.${i}.showIf`, next, { shouldValidate: true })
+                        }
+                        error={errors.steps?.[i]?.showIf?.message}
+                      />
+                    )}
+                    {types[i] !== 'SECTION' && (
                     <div className="flex flex-wrap gap-x-6 gap-y-2">
                       <SwitchField
                         control={form.control}
@@ -378,6 +418,7 @@ function Editor({
                         />
                       )}
                     </div>
+                    )}
                   </PanelBody>
                 </Panel>
               </li>
@@ -427,6 +468,116 @@ function Editor({
         />
       )}
     </>
+  )
+}
+
+/** Answers a condition can wait for, by the earlier step's type. */
+function conditionAnswers(
+  step: Values['steps'][number],
+  t: TFunction,
+): Array<{ value: string; label: string }> {
+  switch (step.inputType) {
+    case 'PASS_FAIL_NA':
+      return (['PASS', 'FAIL', 'NA'] as const).map((r) => ({
+        value: r,
+        label: enumLabel(t, 'stepResult', r),
+      }))
+    case 'NUMBER':
+      return [
+        { value: 'PASS', label: t('procedures.answerInRange') },
+        { value: 'FAIL', label: t('procedures.answerOutOfRange') },
+      ]
+    case 'MULTIPLE_CHOICE':
+      return (step.options ?? []).filter(Boolean).map((o) => ({ value: o, label: o }))
+    case 'CHECKBOX':
+      return [{ value: 'PASS', label: t('procedures.answerTicked') }]
+    case 'SECTION':
+      return []
+    default:
+      return [{ value: 'PASS', label: t('procedures.answerDone') }]
+  }
+}
+
+function conditionAnswerLabel(t: TFunction, answer: string) {
+  return answer === 'PASS' || answer === 'FAIL' || answer === 'NA'
+    ? enumLabel(t, 'stepResult', answer)
+    : answer
+}
+
+const NO_CONDITION = '__always__'
+
+/** "Show this step only if step 2 is Fail" — earlier, answerable steps only. */
+function ConditionPicker({
+  index,
+  steps,
+  value,
+  onChange,
+  error,
+}: {
+  index: number
+  steps: Values['steps']
+  value: StepCondition | null
+  onChange: (next: StepCondition | null) => void
+  error?: string
+}) {
+  const { t } = useTranslation()
+  const earlier = steps
+    .slice(0, index)
+    .map((s, i) => ({ s, n: i + 1 }))
+    .filter(({ s }) => s.inputType !== 'SECTION')
+  const target = value ? steps[value.step - 1] : undefined
+  const answers = target ? conditionAnswers(target, t) : []
+  if (earlier.length === 0) return null
+  return (
+    <div className="grid gap-3 rounded-md bg-muted/40 p-3 sm:grid-cols-2">
+      <div className="grid gap-1.5">
+        <Label htmlFor={`cond-step-${index}`}>{t('procedures.showIf')}</Label>
+        <Select
+          value={value ? String(value.step) : NO_CONDITION}
+          onValueChange={(v) => {
+            if (v === NO_CONDITION) return onChange(null)
+            const step = Number(v)
+            const first = conditionAnswers(steps[step - 1]!, t)[0]
+            onChange({ step, answer: first?.value ?? 'PASS' })
+          }}
+        >
+          <SelectTrigger id={`cond-step-${index}`}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={NO_CONDITION}>{t('procedures.showAlways')}</SelectItem>
+            {earlier.map(({ s, n }) => (
+              <SelectItem key={n} value={String(n)}>
+                {t('procedures.ifStep', { n, title: s.title || '…' })}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      {value && (
+        <div className="grid gap-1.5">
+          <Label htmlFor={`cond-answer-${index}`}>{t('procedures.isAnswered')}</Label>
+          <Select
+            value={value.answer}
+            onValueChange={(answer) => onChange({ step: value.step, answer })}
+          >
+            <SelectTrigger id={`cond-answer-${index}`}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {answers.map((a) => (
+                <SelectItem key={a.value} value={a.value}>
+                  {a.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+      {error && (
+        <p className="text-13 text-danger-fg sm:col-span-2">{t('procedures.conditionInvalid')}</p>
+      )}
+    </div>
   )
 }
 

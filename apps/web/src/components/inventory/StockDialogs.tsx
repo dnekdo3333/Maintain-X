@@ -3,6 +3,7 @@ import {
   fullName,
   stockAdjustmentSchema,
   stockSettingsSchema,
+  stockTransferSchema,
   type PartDetail,
   type StockLevel,
 } from '@maintainx/shared'
@@ -233,6 +234,87 @@ export function StockSettingsDialog({
               </Button>
               <Button type="submit" loading={isSubmitting}>
                 {t('actions.save')}
+              </Button>
+            </FormActions>
+          </form>
+        </Form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/** Move stock from this restaurant's store to another restaurant's. */
+export function TransferStockDialog({
+  part,
+  open,
+  onOpenChange,
+  from,
+  restaurants,
+}: Base & { from: StockLevel; restaurants: Array<{ id: string; name: string }> }) {
+  const { t } = useTranslation()
+  const targets = restaurants.filter((r) => r.id !== from.restaurant.id)
+  const form = useZodForm(stockTransferSchema, {
+    defaultValues: {
+      fromRestaurantId: from.restaurant.id,
+      toRestaurantId: targets.length === 1 ? targets[0]!.id : '',
+      quantity: undefined as unknown as number,
+      reason: '',
+    },
+  })
+  const save = useInvalidatingMutation(
+    (v: Parameters<typeof partsApi.transfer>[1]) => partsApi.transfer(part.id, v),
+    [buyKeys.parts, ['dashboard']],
+  )
+  const { errors, isSubmitting } = form.formState
+  const onSubmit = form.handleSubmit(async (v) => {
+    try {
+      await save.mutateAsync(v)
+      toast.success(t('transfer.done'))
+      onOpenChange(false)
+    } catch (err) {
+      if (!applyServerErrors(form, err)) form.setError('root', { message: describeError(err, t) })
+    }
+  })
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{t('transfer.title')}</DialogTitle>
+          <DialogDescription>
+            {t('transfer.from', {
+              name: from.restaurant.name,
+              qty: formatNumber(from.available),
+              unit: part.unit,
+            })}
+          </DialogDescription>
+        </DialogHeader>
+        <Form {...form}>
+          <form onSubmit={onSubmit} noValidate className="grid gap-4">
+            <FormRootError message={errors.root?.message} />
+            <SelectField
+              control={form.control}
+              name="toRestaurantId"
+              label={t('transfer.to')}
+              required
+              placeholder={t('validation.selectOption')}
+              options={targets.map((r) => ({ value: r.id, label: r.name }))}
+            />
+            <NumberField
+              control={form.control}
+              name="quantity"
+              label={t('stock.quantity')}
+              required
+              min={0}
+              step={1}
+              suffix={part.unit}
+            />
+            <TextField control={form.control} name="reason" label={t('transfer.reason')} optional />
+            <FormActions>
+              <Button variant="secondary" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
+                {t('actions.cancel')}
+              </Button>
+              <Button type="submit" loading={isSubmitting}>
+                {t('transfer.submit')}
               </Button>
             </FormActions>
           </form>

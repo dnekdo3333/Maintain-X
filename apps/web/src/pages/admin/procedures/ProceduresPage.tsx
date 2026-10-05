@@ -42,6 +42,7 @@ import {
 } from '@/services/maintenance.service'
 import { describeError, reportError } from '@/utils/errors'
 import { enumLabel } from '@/utils/i18n'
+import { ProcedureLibraryButton } from './ProcedureLibrary'
 
 const ALL = '__all__'
 /** Like the API schema, but the restaurant select uses ALL for "every restaurant". */
@@ -62,6 +63,7 @@ export function ProceduresPage() {
         actions={
           tab === 'procedures' ? (
             <Can permission="procedures:create">
+              <ProcedureLibraryButton />
               <Button asChild>
                 <Link to="/procedures/new">
                   <Plus aria-hidden /> {t('procedures.new')}

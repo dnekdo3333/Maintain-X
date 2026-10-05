@@ -25,11 +25,18 @@ export const WO_DEFAULTS = {
     needsAfterPhoto: false,
     subWorkOrdersOpen: 0,
     evidence: { BEFORE: 0, DURING: 0, AFTER: 0 },
+    reportRequired: true,
+    verificationRequired: true,
   },
   timeEntries: [],
   contacts: [],
   reservations: [],
   rootCause: null,
+  repeat: null,
+  customFields: {},
+  labels: [],
+  repeatedFrom: null,
+  repeatedBy: null,
 } satisfies Partial<WorkOrderDetail>
 
 /** Engine actions added with the CMMS status flow (all off). */

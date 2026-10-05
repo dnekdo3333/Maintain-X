@@ -42,6 +42,11 @@ export type EnumKind =
   | 'automationTrigger'
   | 'partCondition'
   | 'evidenceStage'
+  | 'simpleStatus'
+  | 'repeatUnit'
+  | 'repeatUnitPlural'
+  | 'repeatBasis'
+  | 'customFieldType'
 
 export function enumLabel(t: TFunction, kind: EnumKind, value: string): string {
   return looseT(t)(`enums.${kind}.${value}`, { defaultValue: value })

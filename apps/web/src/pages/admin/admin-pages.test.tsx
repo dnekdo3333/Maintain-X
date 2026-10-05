@@ -73,6 +73,7 @@ describe('admin navigation', () => {
       'Dashboard',
       'Work orders',
       'Calendar',
+      'Chat',
       'Requests',
       'Maintenance',
       'Inspections',

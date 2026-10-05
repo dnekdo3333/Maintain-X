@@ -11,6 +11,7 @@ import {
   type WorkOrderStatus,
 } from './enums.js'
 import { paginationQuerySchema, sortQuerySchema } from './schemas/common.js'
+import { customValuesSchema, type CustomValue } from './custom.js'
 
 /*
  * Locations, asset categories and assets. Custom messages are i18n keys.
@@ -132,6 +133,8 @@ export const assetSchema = z
     notes: optionalText(2000),
     /** Service vendor; omitted = unchanged. */
     vendorId: z.uuid().or(z.literal('')).optional(),
+    /** Custom field values by field id; omitted = unchanged. */
+    customFields: customValuesSchema.optional(),
   })
   .refine((v) => !v.warrantyStart || !v.warrantyEnd || v.warrantyStart <= v.warrantyEnd, {
     message: 'validation.warrantyEndBeforeStart',
@@ -230,6 +233,8 @@ export interface CostBreakdown {
 }
 
 export interface AssetDetail extends AssetListItem {
+  /** Custom field values by field id (only filled fields). */
+  customFields: Record<string, Exclude<CustomValue, null>>
   vendor: { id: string; name: string; phone: string | null } | null
   installDate: string | null
   /** Components of this asset. */

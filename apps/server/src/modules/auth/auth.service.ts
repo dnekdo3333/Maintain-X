@@ -147,6 +147,46 @@ export async function login(input: LoginInput, req: Request): Promise<SessionRes
   return { session: await buildSession(loaded.authUser, loaded.record.tokenVersion), refreshToken }
 }
 
+/**
+ * Sign-in with Google / Microsoft: the provider confirmed the email address.
+ * Only existing, active users can sign in this way (no self sign-up).
+ */
+export async function ssoLogin(
+  email: string,
+  provider: string,
+  req: Request,
+): Promise<SessionResult> {
+  const matches = await findUsersByIdentifier('email', email.toLowerCase())
+  if (matches.length !== 1) throw invalidCredentials()
+  const user = matches[0]!
+  const audit = (action: string, metadata?: Record<string, unknown>) =>
+    recordAudit(
+      {
+        organizationId: user.organizationId,
+        actorId: user.id,
+        action,
+        entityType: 'AUTH',
+        entityId: user.id,
+        metadata: { method: provider, ...metadata },
+      },
+      req,
+    )
+  if (user.status === 'DISABLED') {
+    await audit('auth.login_denied', { reason: 'disabled' })
+    throw accountDisabled()
+  }
+  if (user.lockedUntil && user.lockedUntil > new Date()) throw accountLocked()
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { failedLoginCount: 0, lastLoginAt: new Date(), status: 'ACTIVE' },
+  })
+  const loaded = await loadUser(user.id)
+  if (!loaded) throw invalidCredentials()
+  const refreshToken = await issueRefreshToken(user.id, randomUUID(), req)
+  await audit('auth.login')
+  return { session: await buildSession(loaded.authUser, loaded.record.tokenVersion), refreshToken }
+}
+
 export async function refresh(rawToken: string | undefined, req: Request): Promise<SessionResult> {
   if (!rawToken) throw sessionInvalid()
   const record = await prisma.refreshToken.findUnique({

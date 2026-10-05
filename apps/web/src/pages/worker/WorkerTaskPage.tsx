@@ -20,7 +20,9 @@ import { WorkOrderParts } from '@/components/work-orders/WorkOrderParts'
 import { useWorkOrderActions } from '@/components/work-orders/useWorkOrderActions'
 import { useWorkOrder } from '@/services/work-orders.service'
 import { cn } from '@/utils/cn'
+import { LabelList } from '@/components/common/LabelChip'
 import { DUE_TONE_CLASS, describeDue, formatDateTime, formatDuration } from '@/utils/format'
+import { reporterName } from '@/utils/people'
 
 /** One task: read it, start it, pause it, add photos and notes, complete it. */
 export function WorkerTaskPage() {
@@ -96,6 +98,7 @@ function Task({ w }: { w: WorkOrderDetail }) {
             )}
           </div>
           <h2 className="text-lg leading-snug font-semibold">{w.title}</h2>
+          <LabelList labels={w.labels} />
           <p className="text-13 text-muted-foreground">
             {w.asset ? (
               <Link
@@ -169,7 +172,7 @@ function Task({ w }: { w: WorkOrderDetail }) {
         {w.sourceRequest && (
           <section className="grid gap-2 rounded-lg border p-3">
             <h3 className="text-sm font-semibold">
-              {t('wo.reportedBy', { name: fullName(w.sourceRequest.requestedBy) })}
+              {t('wo.reportedBy', { name: reporterName(t, w.sourceRequest) })}
             </h3>
             <p className="text-sm whitespace-pre-wrap">{w.sourceRequest.description}</p>
             <AttachmentGallery
@@ -186,7 +189,7 @@ function Task({ w }: { w: WorkOrderDetail }) {
                 {t('checklist.title')}
               </h3>
               <span className="text-13 text-muted-foreground tabular">
-                {t('checklist.progress', { done: progress.answered, total: w.checklist.length })}
+                {t('checklist.progress', { done: progress.answered, total: progress.total })}
               </span>
             </div>
             {!w.actions.checklist &&

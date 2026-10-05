@@ -69,7 +69,10 @@ export function useWorkOrderActions(w: WorkOrderDetail | undefined) {
       withApply(() => workOrdersApi.assign(id, v), t('wo.assigned')),
     hold: (reason: string) => withApply(() => workOrdersApi.hold(id, { reason }), t('wo.onHold')),
     complete: (v: CompleteWorkOrderInput) =>
-      withApply(() => workOrdersApi.complete(id, v), t('wo.completed')),
+      withApply(
+        () => workOrdersApi.complete(id, v),
+        w?.completionCheck.verificationRequired === false ? t('wo.completedDone') : t('wo.completed'),
+      ),
     verify: (note: string) => withApply(() => workOrdersApi.verify(id, { note }), t('wo.verified')),
     reject: (reason: string) =>
       withApply(() => workOrdersApi.reject(id, { reason }), t('wo.rejected')),

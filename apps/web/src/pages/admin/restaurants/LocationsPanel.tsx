@@ -50,7 +50,8 @@ import { assetKeys, locationsApi, useLocations } from '@/services/assets.service
 import { cn } from '@/utils/cn'
 import { describeError, reportError } from '@/utils/errors'
 import { enumLabel } from '@/utils/i18n'
-import { downloadQrPng, locationQrUrl } from '@/utils/qr'
+import { downloadQrPng, locationQrUrl, portalUrl } from '@/utils/qr'
+import { useWorkflow } from '@/contexts/WorkflowContext'
 
 const TOP = '__top__'
 
@@ -209,6 +210,7 @@ function LocationForm({
 export function LocationsPanel({ restaurantId }: { restaurantId: string }) {
   const { t } = useTranslation()
   const query = useLocations(restaurantId)
+  const workflow = useWorkflow()
   const [editing, setEditing] = useState<LocationDto | { parent?: string } | null>(null)
   const [archiving, setArchiving] = useState<LocationDto | null>(null)
   const [qrFor, setQrFor] = useState<LocationDto | null>(null)
@@ -374,6 +376,27 @@ export function LocationsPanel({ restaurantId }: { restaurantId: string }) {
               >
                 <Download aria-hidden /> {t('assets.downloadPng')}
               </Button>
+              {workflow?.requestPortal && (
+                <div className="mt-2 grid justify-items-center gap-3 border-t pt-4 text-center">
+                  <p className="text-13 text-muted-foreground">{t('portal.locationQrHint')}</p>
+                  <QrCode
+                    value={portalUrl(qrFor.publicId)}
+                    label={t('portal.qrLabel', { name: qrFor.name })}
+                    className="w-48"
+                  />
+                  <Button
+                    variant="secondary"
+                    onClick={() =>
+                      void downloadQrPng(
+                        portalUrl(qrFor.publicId),
+                        `report-a-problem-${qrFor.name}.png`,
+                      )
+                    }
+                  >
+                    <Download aria-hidden /> {t('portal.downloadGuestQr')}
+                  </Button>
+                </div>
+              )}
             </div>
           )}
         </DialogContent>

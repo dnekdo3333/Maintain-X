@@ -162,6 +162,8 @@ enum StepInputType {
   MULTIPLE_CHOICE
   PHOTO
   SIGNATURE
+  /// A heading that groups the steps below it; nothing to answer.
+  SECTION
 }
 
 /// When a photo / video was taken during the job.
@@ -356,6 +358,8 @@ enum NotificationType {
   DUE_SOON
   WORK_REOPENED
   METER_ALERT
+  STORAGE_ALERT
+  CHAT_MESSAGE
 }
 
 enum SettingScope {
@@ -435,6 +439,12 @@ model Organization {
   assetMeters       AssetMeter[]
   automations       Automation[]
   rootCauseAnalyses RootCauseAnalysis[]
+  savedViews        SavedView[]
+  customFieldDefs   CustomField[]
+  labels            Label[]
+  conversations     Conversation[]
+  apiKeys           ApiKey[]
+  webhooks          Webhook[]
 
   @@map("organizations")
 }
@@ -460,6 +470,8 @@ model User {
   hourlyRate         Decimal?   @map("hourly_rate") @db.Decimal(10, 2)
   /// Bumped to invalidate every session (password change, role/restaurant change, admin revoke).
   tokenVersion       Int        @default(1) @map("token_version")
+  /// The admin dashboard this person arranged: widget keys in order (null = default).
+  dashboardLayout    Json?      @map("dashboard_layout")
   archivedAt         DateTime?  @map("archived_at") @db.Timestamptz
   createdAt          DateTime   @default(now()) @map("created_at") @db.Timestamptz
   updatedAt          DateTime   @updatedAt @map("updated_at") @db.Timestamptz
@@ -512,6 +524,11 @@ model User {
   rcasUpdated        RootCauseAnalysis[] @relation("RcaUpdater")
 
   pushSubscriptions PushSubscription[]
+  savedViews        SavedView[]
+  chatMemberships   ConversationMember[]
+  chatMessages      ChatMessage[]
+  conversationsMade Conversation[]
+  apiKeysCreated    ApiKey[]
 
   @@unique([organizationId, email])
   @@unique([organizationId, username])
@@ -675,6 +692,8 @@ model Restaurant {
   /// The person in charge on site (shown on the restaurant and used for escalations).
   managerId      String?          @map("manager_id") @db.Uuid
   contactName    String?          @map("contact_name")
+  /// Random id in the public request portal link (/p/<portalId>); no login needed.
+  portalId       String           @unique @default(dbgenerated("replace((gen_random_uuid())::text, '-'::text, ''::text)")) @map("portal_id")
   status         RestaurantStatus @default(ACTIVE)
   archivedAt     DateTime?        @map("archived_at") @db.Timestamptz
   createdAt      DateTime         @default(now()) @map("created_at") @db.Timestamptz
@@ -788,6 +807,8 @@ model Asset {
   status         AssetStatus      @default(OPERATIONAL)
   imageKey       String?          @map("image_key")
   notes          String?
+  /// Values of the organisation's custom fields, keyed by CustomField id.
+  customFields   Json             @default("{}") @map("custom_fields")
   archivedAt     DateTime?        @map("archived_at") @db.Timestamptz
   createdAt      DateTime         @default(now()) @map("created_at") @db.Timestamptz
   updatedAt      DateTime         @updatedAt @map("updated_at") @db.Timestamptz
@@ -872,7 +893,11 @@ model Request {
   description          String
   priority             Priority          @default(MEDIUM)
   status               RequestStatus     @default(NEW)
-  requestedById        String            @map("requested_by_id") @db.Uuid
+  /// Null for guests who reported through the public portal.
+  requestedById        String?           @map("requested_by_id") @db.Uuid
+  /// Portal guests: their name and phone (digits only) to follow up and look up status.
+  guestName            String?           @map("guest_name")
+  guestPhone           String?           @map("guest_phone")
   reviewedById         String?           @map("reviewed_by_id") @db.Uuid
   reviewedAt           DateTime?         @map("reviewed_at") @db.Timestamptz
   rejectionReason      String?           @map("rejection_reason")
@@ -886,13 +911,14 @@ model Request {
   restaurant         Restaurant   @relation(fields: [restaurantId], references: [id])
   location           Location?    @relation(fields: [locationId], references: [id])
   asset              Asset?       @relation(fields: [assetId], references: [id])
-  requestedBy        User         @relation("RequestRequester", fields: [requestedById], references: [id])
+  requestedBy        User?        @relation("RequestRequester", fields: [requestedById], references: [id])
   reviewedBy         User?        @relation("RequestReviewer", fields: [reviewedById], references: [id])
   convertedWorkOrder WorkOrder?   @relation("RequestConversion", fields: [convertedWorkOrderId], references: [id])
 
   @@unique([organizationId, code])
   @@index([restaurantId, status, createdAt])
   @@index([requestedById])
+  @@index([restaurantId, guestPhone])
   @@map("requests")
 }
 
@@ -941,26 +967,37 @@ model WorkOrder {
   reopenCount      Int               @default(0) @map("reopen_count")
   holdReason       String?           @map("hold_reason")
   completionNotes  String?           @map("completion_notes")
+  /// Values of the organisation's custom fields, keyed by CustomField id.
+  customFields     Json              @default("{}") @map("custom_fields")
+  /// Repeat: every N units, counted from the due date (SCHEDULE) or from completion.
+  repeatEvery      Int?              @map("repeat_every")
+  repeatUnit       RepeatUnit?       @map("repeat_unit")
+  repeatBasis      RepeatBasis?      @map("repeat_basis")
+  /// The earlier job this one repeats (one follow-up per job).
+  repeatedFromId   String?           @unique @map("repeated_from_id") @db.Uuid
   archivedAt       DateTime?         @map("archived_at") @db.Timestamptz
   createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz
   updatedAt        DateTime          @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization  Organization @relation(fields: [organizationId], references: [id])
-  restaurant    Restaurant   @relation(fields: [restaurantId], references: [id])
-  location      Location?    @relation(fields: [locationId], references: [id])
-  asset         Asset?       @relation(fields: [assetId], references: [id])
-  assignedUser  User?        @relation("WorkOrderAssignee", fields: [assignedUserId], references: [id])
-  assignedTeam  Team?        @relation(fields: [assignedTeamId], references: [id])
-  procedure     Procedure?   @relation(fields: [procedureId], references: [id])
-  pmSchedule    PmSchedule?  @relation(fields: [pmScheduleId], references: [id])
-  createdBy     User         @relation("WorkOrderCreator", fields: [createdById], references: [id])
-  closedBy      User?        @relation("WorkOrderCloser", fields: [closedById], references: [id])
-  verifiedBy    User?        @relation("WorkOrderVerifier", fields: [verifiedById], references: [id])
-  supervisor    User?        @relation("WorkOrderSupervisor", fields: [supervisorId], references: [id])
-  vendor        Vendor?      @relation(fields: [vendorId], references: [id])
-  parent        WorkOrder?   @relation("WorkOrderTree", fields: [parentId], references: [id])
-  children      WorkOrder[]  @relation("WorkOrderTree")
-  sourceRequest Request?     @relation("RequestConversion")
+  organization  Organization     @relation(fields: [organizationId], references: [id])
+  restaurant    Restaurant       @relation(fields: [restaurantId], references: [id])
+  location      Location?        @relation(fields: [locationId], references: [id])
+  asset         Asset?           @relation(fields: [assetId], references: [id])
+  assignedUser  User?            @relation("WorkOrderAssignee", fields: [assignedUserId], references: [id])
+  assignedTeam  Team?            @relation(fields: [assignedTeamId], references: [id])
+  procedure     Procedure?       @relation(fields: [procedureId], references: [id])
+  pmSchedule    PmSchedule?      @relation(fields: [pmScheduleId], references: [id])
+  createdBy     User             @relation("WorkOrderCreator", fields: [createdById], references: [id])
+  closedBy      User?            @relation("WorkOrderCloser", fields: [closedById], references: [id])
+  verifiedBy    User?            @relation("WorkOrderVerifier", fields: [verifiedById], references: [id])
+  supervisor    User?            @relation("WorkOrderSupervisor", fields: [supervisorId], references: [id])
+  vendor        Vendor?          @relation(fields: [vendorId], references: [id])
+  parent        WorkOrder?       @relation("WorkOrderTree", fields: [parentId], references: [id])
+  children      WorkOrder[]      @relation("WorkOrderTree")
+  sourceRequest Request?         @relation("RequestConversion")
+  repeatedFrom  WorkOrder?       @relation("WorkOrderRepeat", fields: [repeatedFromId], references: [id])
+  labels        WorkOrderLabel[]
+  repeatedBy    WorkOrder?       @relation("WorkOrderRepeat")
 
   helpers    WorkOrderAssignment[]
   costs      WorkOrderCost[]
@@ -1098,6 +1135,9 @@ model WorkOrderChecklistItem {
   required              Boolean       @default(true)
   options               String[]      @default([])
   requirePhoto          Boolean       @default(false) @map("require_photo")
+  /// Shown only when step #showIfPosition was answered showIfAnswer (PASS / FAIL / NA or a choice).
+  showIfPosition        Int?          @map("show_if_position")
+  showIfAnswer          String?       @map("show_if_answer")
   result                StepResult?
   numericValue          Decimal?      @map("numeric_value") @db.Decimal(12, 3)
   textValue             String?       @map("text_value")
@@ -1185,27 +1225,33 @@ model Message {
 
 /// Photos, videos and files attached to work orders, requests, checklist items and messages.
 model Attachment {
-  id           String              @id @default(uuid()) @db.Uuid
-  ownerType    AttachmentOwnerType @map("owner_type")
-  ownerId      String              @map("owner_id") @db.Uuid
-  kind         AttachmentKind
-  storageKey   String              @unique @map("storage_key")
-  thumbKey     String?             @map("thumb_key")
-  fileName     String              @map("file_name")
-  mimeType     String              @map("mime_type")
-  sizeBytes    Int                 @map("size_bytes")
-  width        Int?
-  height       Int?
-  durationSec  Int?                @map("duration_sec")
+  id            String              @id @default(uuid()) @db.Uuid
+  ownerType     AttachmentOwnerType @map("owner_type")
+  ownerId       String              @map("owner_id") @db.Uuid
+  kind          AttachmentKind
+  storageKey    String              @unique @map("storage_key")
+  thumbKey      String?             @map("thumb_key")
+  fileName      String              @map("file_name")
+  mimeType      String              @map("mime_type")
+  sizeBytes     Int                 @map("size_bytes")
+  width         Int?
+  height        Int?
+  durationSec   Int?                @map("duration_sec")
   /// Work-order evidence: before / during / after the repair (null = general).
-  stage        EvidenceStage?
-  caption      String?
-  uploadedById String              @map("uploaded_by_id") @db.Uuid
-  createdAt    DateTime            @default(now()) @map("created_at") @db.Timestamptz
+  stage         EvidenceStage?
+  caption       String?
+  /// Re-saved smaller once the photo is older than the compaction age.
+  compactedAt   DateTime?           @map("compacted_at") @db.Timestamptz
+  /// The file was removed by the retention policy (old videos, > retention years); the record stays.
+  fileRemovedAt DateTime?           @map("file_removed_at") @db.Timestamptz
+  /// Null for photos a guest sent through the public request portal.
+  uploadedById  String?             @map("uploaded_by_id") @db.Uuid
+  createdAt     DateTime            @default(now()) @map("created_at") @db.Timestamptz
 
-  uploadedBy User @relation(fields: [uploadedById], references: [id])
+  uploadedBy User? @relation(fields: [uploadedById], references: [id])
 
   @@index([ownerType, ownerId])
+  @@index([kind, createdAt])
   @@map("attachments")
 }
 
@@ -1241,23 +1287,26 @@ model Procedure {
 }
 
 model ProcedureStep {
-  id           String        @id @default(uuid()) @db.Uuid
-  procedureId  String        @map("procedure_id") @db.Uuid
-  position     Int
-  title        String
-  instruction  String?
-  inputType    StepInputType @default(PASS_FAIL_NA) @map("input_type")
-  unit         String?
+  id             String        @id @default(uuid()) @db.Uuid
+  procedureId    String        @map("procedure_id") @db.Uuid
+  position       Int
+  title          String
+  instruction    String?
+  inputType      StepInputType @default(PASS_FAIL_NA) @map("input_type")
+  unit           String?
   /// For NUMBER steps: a reading outside [min, max] auto-fails.
-  minValue     Decimal?      @map("min_value") @db.Decimal(12, 3)
-  maxValue     Decimal?      @map("max_value") @db.Decimal(12, 3)
-  required     Boolean       @default(true)
+  minValue       Decimal?      @map("min_value") @db.Decimal(12, 3)
+  maxValue       Decimal?      @map("max_value") @db.Decimal(12, 3)
+  required       Boolean       @default(true)
   /// MULTIPLE_CHOICE: the allowed answers.
-  options      String[]      @default([])
+  options        String[]      @default([])
   /// A photo must be attached before the step counts as done.
-  requirePhoto Boolean       @default(false) @map("require_photo")
-  createdAt    DateTime      @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt    DateTime      @updatedAt @map("updated_at") @db.Timestamptz
+  requirePhoto   Boolean       @default(false) @map("require_photo")
+  /// Shown only when step #showIfPosition was answered showIfAnswer (PASS / FAIL / NA or a choice).
+  showIfPosition Int?          @map("show_if_position")
+  showIfAnswer   String?       @map("show_if_answer")
+  createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime      @updatedAt @map("updated_at") @db.Timestamptz
 
   procedure Procedure @relation(fields: [procedureId], references: [id], onDelete: Cascade)
 
@@ -1380,6 +1429,9 @@ model InspectionItem {
   required              Boolean       @default(true)
   options               String[]      @default([])
   requirePhoto          Boolean       @default(false) @map("require_photo")
+  /// Shown only when step #showIfPosition was answered showIfAnswer (PASS / FAIL / NA or a choice).
+  showIfPosition        Int?          @map("show_if_position")
+  showIfAnswer          String?       @map("show_if_answer")
   result                StepResult?
   numericValue          Decimal?      @map("numeric_value") @db.Decimal(12, 3)
   textValue             String?       @map("text_value")
@@ -2045,4 +2097,238 @@ model IdempotencyKey {
   @@id([userId, key])
   @@index([createdAt])
   @@map("idempotency_keys")
+}
+
+// =============================================================================
+// Repeat & saved views
+// =============================================================================
+
+enum RepeatUnit {
+  DAY
+  WEEK
+  MONTH
+}
+
+enum RepeatBasis {
+  /// Next due date = this due date + interval (missed ones are skipped).
+  SCHEDULE
+  /// Next due date = when this one was completed + interval.
+  COMPLETION
+}
+
+/// A named set of list filters (the list page's query string). Private, or shared with everyone.
+model SavedView {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  /// Which list: work_orders, requests, assets, parts.
+  resource       String
+  name           String
+  /// The list's URL query string, e.g. "status=OPEN&priority=HIGH".
+  query          String
+  shared         Boolean  @default(false)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, resource])
+  @@index([userId, resource])
+  @@map("saved_views")
+}
+
+// =============================================================================
+// Custom fields & labels
+// =============================================================================
+
+enum CustomFieldEntity {
+  WORK_ORDER
+  ASSET
+}
+
+enum CustomFieldType {
+  TEXT
+  NUMBER
+  DATE
+  SELECT
+  CHECKBOX
+}
+
+/// An extra field the organisation adds to work orders or assets (values live on the record).
+model CustomField {
+  id             String            @id @default(uuid()) @db.Uuid
+  organizationId String            @map("organization_id") @db.Uuid
+  entity         CustomFieldEntity
+  label          String
+  type           CustomFieldType   @default(TEXT)
+  /// SELECT choices.
+  options        String[]          @default([])
+  required       Boolean           @default(false)
+  position       Int               @default(0)
+  archivedAt     DateTime?         @map("archived_at") @db.Timestamptz
+  createdAt      DateTime          @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime          @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId, entity])
+  @@map("custom_fields")
+}
+
+/// A coloured label (custom category) put on work orders, e.g. "Health inspection", "Guest complaint".
+model Label {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  name           String
+  /// Palette key (blue, green, amber, red, violet, slate…).
+  color          String    @default("blue")
+  archivedAt     DateTime? @map("archived_at") @db.Timestamptz
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  organization Organization     @relation(fields: [organizationId], references: [id])
+  workOrders   WorkOrderLabel[]
+
+  @@unique([organizationId, name])
+  @@map("labels")
+}
+
+model WorkOrderLabel {
+  workOrderId String @map("work_order_id") @db.Uuid
+  labelId     String @map("label_id") @db.Uuid
+
+  workOrder WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  label     Label     @relation(fields: [labelId], references: [id], onDelete: Cascade)
+
+  @@id([workOrderId, labelId])
+  @@index([labelId])
+  @@map("work_order_labels")
+}
+
+// =============================================================================
+// Team chat
+// =============================================================================
+
+enum ConversationType {
+  DIRECT
+  GROUP
+}
+
+/// A chat between two people (DIRECT) or a named group.
+model Conversation {
+  id             String           @id @default(uuid()) @db.Uuid
+  organizationId String           @map("organization_id") @db.Uuid
+  type           ConversationType
+  /// Groups only.
+  name           String?
+  /// DIRECT: "<smaller user id>:<larger user id>" so a pair has one chat.
+  directKey      String?          @unique @map("direct_key")
+  createdById    String           @map("created_by_id") @db.Uuid
+  lastMessageAt  DateTime         @default(now()) @map("last_message_at") @db.Timestamptz
+  createdAt      DateTime         @default(now()) @map("created_at") @db.Timestamptz
+
+  organization Organization         @relation(fields: [organizationId], references: [id])
+  createdBy    User                 @relation(fields: [createdById], references: [id])
+  members      ConversationMember[]
+  messages     ChatMessage[]
+
+  @@index([organizationId, lastMessageAt])
+  @@map("conversations")
+}
+
+model ConversationMember {
+  conversationId String    @map("conversation_id") @db.Uuid
+  userId         String    @map("user_id") @db.Uuid
+  joinedAt       DateTime  @default(now()) @map("joined_at") @db.Timestamptz
+  lastReadAt     DateTime  @default(now()) @map("last_read_at") @db.Timestamptz
+  /// Left the group: keeps history out of their list.
+  leftAt         DateTime? @map("left_at") @db.Timestamptz
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([conversationId, userId])
+  @@index([userId])
+  @@map("conversation_members")
+}
+
+model ChatMessage {
+  id             String    @id @default(uuid()) @db.Uuid
+  conversationId String    @map("conversation_id") @db.Uuid
+  authorId       String    @map("author_id") @db.Uuid
+  body           String
+  /// Optional link to a work order mentioned in the chat.
+  workOrderId    String?   @map("work_order_id") @db.Uuid
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  deletedAt      DateTime? @map("deleted_at") @db.Timestamptz
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  author       User         @relation(fields: [authorId], references: [id])
+
+  @@index([conversationId, createdAt])
+  @@map("chat_messages")
+}
+
+// =============================================================================
+// Public API & webhooks
+// =============================================================================
+
+/// A key for the REST API. Only a hash is stored; the key acts as its creator, limited to its scopes.
+model ApiKey {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  name           String
+  /// First characters shown in the list, e.g. "mx_live_ab12".
+  prefix         String
+  hash           String    @unique
+  /// Permission keys the key may use (subset of its creator's).
+  scopes         String[]
+  createdById    String    @map("created_by_id") @db.Uuid
+  lastUsedAt     DateTime? @map("last_used_at") @db.Timestamptz
+  expiresAt      DateTime? @map("expires_at") @db.Timestamptz
+  revokedAt      DateTime? @map("revoked_at") @db.Timestamptz
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  createdBy    User         @relation(fields: [createdById], references: [id])
+
+  @@index([organizationId])
+  @@map("api_keys")
+}
+
+/// An HTTPS endpoint told about events (work order created / completed, request created…).
+model Webhook {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  url            String
+  events         String[]
+  /// HMAC-SHA256 signing secret (shown once when created).
+  secret         String
+  active         Boolean   @default(true)
+  lastStatus     Int?      @map("last_status")
+  lastError      String?   @map("last_error")
+  lastSentAt     DateTime? @map("last_sent_at") @db.Timestamptz
+  failureCount   Int       @default(0) @map("failure_count")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  organization Organization      @relation(fields: [organizationId], references: [id])
+  deliveries   WebhookDelivery[]
+
+  @@index([organizationId])
+  @@map("webhooks")
+}
+
+model WebhookDelivery {
+  id         String   @id @default(uuid()) @db.Uuid
+  webhookId  String   @map("webhook_id") @db.Uuid
+  event      String
+  status     Int?
+  error      String?
+  durationMs Int      @default(0) @map("duration_ms")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  webhook Webhook @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+
+  @@index([webhookId, createdAt])
+  @@map("webhook_deliveries")
 }

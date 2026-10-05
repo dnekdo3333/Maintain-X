@@ -9,19 +9,23 @@ import {
   LogOut,
   Megaphone,
   Menu,
+  MessagesSquare,
   Package,
   ScanLine,
   UserRound,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Navigate } from 'react-router'
+import { GlobalSearch } from '@/components/common/GlobalSearch'
 import { LanguageSwitcher } from '@/components/common/LanguageSwitcher'
 import { RestaurantSwitcher } from '@/components/common/RestaurantSwitcher'
 import { UserMenu } from '@/components/common/UserMenu'
 import { NotificationBell } from '@/components/notifications/NotificationBell'
 import { useAuth } from '@/contexts/AuthContext'
 import { useUnreadCount } from '@/services/platform.service'
+import { useChatUnread } from '@/services/chat.service'
 import { RestaurantScopeProvider } from '@/contexts/RestaurantScopeContext'
+import { WorkflowProvider, useWorkflow } from '@/contexts/WorkflowContext'
 import { AdminLayout } from './AdminLayout'
 import { adminNavigation } from './admin-nav'
 import { BrandMark } from './BrandMark'
@@ -37,10 +41,29 @@ function useAdminNav() {
   // Cheap to rebuild; recomputing every render keeps labels in the current language.
   const { t } = useTranslation()
   const { can } = useAuth()
-  return filterNavigation(adminNavigation(t), can)
+  const workflow = useWorkflow()
+  const chatUnread = useChatUnread()
+  const nav = filterNavigation(adminNavigation(t), can).map((g) => ({
+    ...g,
+    items: g.items.map((i) => (i.key === 'chat' ? { ...i, badge: chatUnread.data } : i)),
+  }))
+  // Stock counts is an extra tool, shown when the workflow turns it on.
+  if (workflow && !workflow.showCycleCounts)
+    return nav
+      .map((g) => ({ ...g, items: g.items.filter((i) => i.key !== 'stock-counts') }))
+      .filter((g) => g.items.length > 0)
+  return nav
 }
 
 export function AdminShell() {
+  return (
+    <WorkflowProvider>
+      <AdminShellInner />
+    </WorkflowProvider>
+  )
+}
+
+function AdminShellInner() {
   const nav = useAdminNav()
   return (
     <RestaurantScopeProvider>
@@ -50,6 +73,7 @@ export function AdminShell() {
         headerStart={<RestaurantSwitcher />}
         headerEnd={
           <>
+            <GlobalSearch />
             <LanguageSwitcher className="hidden sm:block" />
             <NotificationBell />
             <UserMenu accountPath="/account" />
@@ -63,7 +87,8 @@ export function AdminShell() {
 /** "/" for users without the dashboard: the first module they can open. */
 export function AdminHome() {
   const nav = useAdminNav()
-  const first = nav[0]?.items[0]?.to ?? '/account'
+  // Chat is open to everyone, so it never counts as a module to land on.
+  const first = nav.flatMap((g) => g.items).find((i) => i.key !== 'chat')?.to ?? '/account'
   return <Navigate to={first === '/' ? '/account' : first} replace />
 }
 
@@ -108,6 +133,7 @@ export function WorkerShell() {
   const { t } = useTranslation()
   const { can } = useAuth()
   const unread = useUnreadCount()
+  const chatUnread = useChatUnread()
   // Requesters (restaurant staff) report problems; they have no tasks of their own.
   const doesWork = can('work_orders:view')
   // Schedule lives under More; alerts get a tab with a badge.
@@ -129,6 +155,13 @@ export function WorkerShell() {
   // On desktops the sidebar shows these directly (on phones they're under More).
   const moreItems: NavItem[] = [
     { key: 'report', label: t('report.title'), to: '/w/report', icon: Megaphone },
+    {
+      key: 'chat',
+      label: t('nav.chat'),
+      to: '/w/chat',
+      icon: MessagesSquare,
+      badge: chatUnread.data,
+    },
     ...(doesWork
       ? [{ key: 'schedule', label: t('nav.schedule'), to: '/w/schedule', icon: CalendarDays }]
       : []),
@@ -149,5 +182,9 @@ export function WorkerShell() {
     { key: 'restaurants', label: t('nav.myRestaurants'), to: '/w/restaurants', icon: Building2 },
     { key: 'account', label: t('worker.profile'), to: '/w/account', icon: UserRound },
   ]
-  return <WorkerLayout tabs={tabs} moreItems={moreItems} sidebarFooter={<WorkerSidebarFooter />} />
+  return (
+    <WorkflowProvider>
+      <WorkerLayout tabs={tabs} moreItems={moreItems} sidebarFooter={<WorkerSidebarFooter />} />
+    </WorkflowProvider>
+  )
 }

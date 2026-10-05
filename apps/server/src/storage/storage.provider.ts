@@ -26,8 +26,9 @@ export interface SignedUrlOptions {
  * Storage abstraction. Files are private: nothing is served without a
  * permission check followed by a short-lived signed URL.
  *
- * Implementations: LocalStorageProvider (dev / single server) and
- * S3StorageProvider (AWS S3, Cloudflare R2, MinIO) — chosen by STORAGE_DRIVER.
+ * Implementations: LocalStorageProvider (dev / single server),
+ * SupabaseStorageProvider (Supabase Storage bucket) and S3StorageProvider
+ * (AWS S3, Cloudflare R2) — chosen by STORAGE_DRIVER.
  */
 export interface StorageProvider {
   put(key: string, body: Buffer | Readable, options: PutOptions): Promise<StoredObject>

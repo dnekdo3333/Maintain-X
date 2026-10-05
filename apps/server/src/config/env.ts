@@ -59,10 +59,14 @@ const envSchema = z
     REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().positive().default(30),
     COOKIE_SECURE: booleanString.optional(),
 
-    STORAGE_DRIVER: z.enum(['local', 's3']).default('local'),
+    STORAGE_DRIVER: z.enum(['local', 's3', 'supabase']).default('local'),
+    /** Supabase Storage (STORAGE_DRIVER=supabase): project URL, service-role key, private bucket. */
+    SUPABASE_URL: z.url().optional(),
+    SUPABASE_SERVICE_ROLE_KEY: z.string().min(20).optional(),
+    SUPABASE_BUCKET: z.string().min(3).default('maintenance-files'),
     STORAGE_LOCAL_DIR: z.string().min(1).default('./storage'),
     FILE_SIGNING_SECRET: z.string().min(32, 'must be at least 32 characters'),
-    /** S3-compatible storage (AWS S3, Cloudflare R2, MinIO). Used when STORAGE_DRIVER=s3. */
+    /** S3-compatible storage (AWS S3, Cloudflare R2). Used when STORAGE_DRIVER=s3. */
     S3_BUCKET: z.string().min(3).optional(),
     S3_REGION: z.string().min(1).default('ap-south-1'),
     S3_ENDPOINT: z.url().optional(),
@@ -71,6 +75,9 @@ const envSchema = z
     S3_FORCE_PATH_STYLE: booleanString.optional(),
     S3_PREFIX: z.string().max(100).optional(),
     MAX_UPLOAD_MB: z.coerce.number().positive().default(25),
+    /** Plan limits used for the storage meter and alerts (Supabase free: 1 GB files, 500 MB database). */
+    STORAGE_QUOTA_MB: z.coerce.number().positive().default(1024),
+    DATABASE_QUOTA_MB: z.coerce.number().positive().default(500),
 
     /** Protects GET /api/v1/jobs/run (Vercel Cron sends it as a Bearer token). */
     CRON_SECRET: z.string().min(16).optional(),
@@ -82,6 +89,15 @@ const envSchema = z
     VAPID_PUBLIC_KEY: z.string().min(20).optional(),
     VAPID_PRIVATE_KEY: z.string().min(20).optional(),
     VAPID_SUBJECT: z.string().min(5).optional(),
+
+    /** Sign in with Google (optional): OAuth client from console.cloud.google.com. */
+    GOOGLE_CLIENT_ID: z.string().min(10).optional(),
+    GOOGLE_CLIENT_SECRET: z.string().min(10).optional(),
+    /** Sign in with Microsoft (optional): app registration in Microsoft Entra ID. */
+    MICROSOFT_CLIENT_ID: z.string().min(10).optional(),
+    MICROSOFT_CLIENT_SECRET: z.string().min(10).optional(),
+    /** Your directory (tenant) id; only accounts from it can sign in. */
+    MICROSOFT_TENANT_ID: z.string().min(3).optional(),
 
     RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
     RATE_LIMIT_MAX: z.coerce.number().int().positive().default(300),

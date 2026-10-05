@@ -52,6 +52,7 @@ const DETAIL: AssetDetail = {
   ...ITEM,
   purchaseDate: '2024-03-01',
   purchaseCost: '185000',
+  customFields: {},
   vendor: null,
   installDate: null,
   children: [],

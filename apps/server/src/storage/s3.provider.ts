@@ -20,7 +20,7 @@ import {
 export interface S3StorageConfig {
   bucket: string
   region: string
-  /** Custom endpoint for S3-compatible services (Cloudflare R2, MinIO, DigitalOcean Spaces). */
+  /** Custom endpoint for S3-compatible services (Cloudflare R2, DigitalOcean Spaces). */
   endpoint?: string
   accessKeyId?: string
   secretAccessKey?: string

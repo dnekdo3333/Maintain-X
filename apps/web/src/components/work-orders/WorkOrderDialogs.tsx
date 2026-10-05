@@ -47,8 +47,16 @@ export function WorkOrderDialogs({
           className={large ? 'max-h-[92dvh]' : undefined}
         >
           <SheetHeader>
-            <SheetTitle>{t('completion.title')}</SheetTitle>
-            <SheetDescription>{t('completion.body')}</SheetDescription>
+            <SheetTitle>
+              {w.completionCheck.reportRequired ? t('completion.title') : t('completion.simpleTitle')}
+            </SheetTitle>
+            <SheetDescription>
+              {w.completionCheck.reportRequired
+                ? t('completion.body')
+                : w.completionCheck.verificationRequired
+                  ? t('completion.simpleBodyVerify')
+                  : t('completion.simpleBody')}
+            </SheetDescription>
           </SheetHeader>
           <SheetBody>
             {a.dialog === 'complete' && (

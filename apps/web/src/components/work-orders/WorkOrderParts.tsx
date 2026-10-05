@@ -3,6 +3,7 @@ import { Plus, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
+import { useWorkflow } from '@/contexts/WorkflowContext'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -27,6 +28,7 @@ import { WorkOrderReservations } from './WorkOrderReservations'
 export function WorkOrderParts({ w, large = false }: { w: WorkOrderDetail; large?: boolean }) {
   const { t } = useTranslation()
   const apply = useApplyWorkOrder()
+  const workflow = useWorkflow()
   const [adding, setAdding] = useState(false)
   const [partId, setPartId] = useState('')
   const [qty, setQty] = useState('1')
@@ -69,7 +71,9 @@ export function WorkOrderParts({ w, large = false }: { w: WorkOrderDetail; large
   const h = large ? 'h-12 text-base' : undefined
   return (
     <div className="grid gap-3">
-      <WorkOrderReservations w={w} />
+      {(!workflow || workflow.showReservations || w.reservations.length > 0) && (
+        <WorkOrderReservations w={w} />
+      )}
       {w.parts.length === 0 ? (
         <p className="text-13 text-muted-foreground">{t('woParts.none')}</p>
       ) : (

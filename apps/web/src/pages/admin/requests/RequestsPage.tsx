@@ -15,6 +15,7 @@ import { DetailList } from '@/components/common/DetailList'
 import { EmptyState } from '@/components/common/EmptyState'
 import { ErrorState } from '@/components/common/ErrorState'
 import { PageHeader } from '@/components/common/PageHeader'
+import { SavedViews } from '@/components/common/SavedViews'
 import { StatusBadge } from '@/components/common/StatusBadge'
 import { DataTable, FilterSelect, SearchInput } from '@/components/tables'
 import { Button } from '@/components/ui/button'
@@ -37,6 +38,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { requestsApi, useRequest, useRequests, workKeys } from '@/services/work-orders.service'
 import { formatDateTime, formatRelative } from '@/utils/format'
 import { enumLabel } from '@/utils/i18n'
+import { reporterName } from '@/utils/people'
 
 const FILTERS = ['status', 'restaurantId'] as const
 const TABLE_CONFIG = {
@@ -92,7 +94,7 @@ export function RequestsPage() {
       enableSorting: true,
       cell: (c) => <StatusBadge kind="priority" value={c.getValue()} />,
     }),
-    col.accessor((r) => fullName(r.requestedBy), {
+    col.accessor((r) => reporterName(t, r), {
       id: 'requestedBy',
       header: t('requests.colReportedBy'),
       meta: { hideBelow: 'md' },
@@ -116,7 +118,11 @@ export function RequestsPage() {
 
   return (
     <>
-      <PageHeader title={t('requests.title')} description={t('requests.subtitle')} />
+      <PageHeader
+        title={t('requests.title')}
+        description={t('requests.subtitle')}
+        actions={<SavedViews resource="requests" />}
+      />
       <DataTable
         label={t('requests.title')}
         persistKey="requests"
@@ -289,7 +295,10 @@ function RequestSheet({ id, onClose }: { id: string; onClose: () => void }) {
         <AttachmentGallery items={r.attachments} className="grid grid-cols-3 gap-2" />
         <DetailList
           items={[
-            { label: t('requests.colReportedBy'), value: fullName(r.requestedBy) },
+            {
+              label: t('requests.colReportedBy'),
+              value: r.guest?.phone ? `${reporterName(t, r)} · ${r.guest.phone}` : reporterName(t, r),
+            },
             { label: t('requests.colReported'), value: formatDateTime(r.createdAt) },
             { label: t('wo.fieldCategory'), value: enumLabel(t, 'workOrderCategory', r.category) },
             { label: t('wo.fieldRestaurant'), value: r.restaurant.name },

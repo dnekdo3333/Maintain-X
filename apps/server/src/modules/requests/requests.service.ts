@@ -46,6 +46,10 @@ function visibleWhere(auth: AuthContext, mineOnly = false): Prisma.RequestWhereI
   }
 }
 
+/** Portal guests have no account: their name and phone stand in for the reporter. */
+export const guestOf = (r: { guestName: string | null; guestPhone: string | null }) =>
+  r.guestName ? { name: r.guestName, phone: r.guestPhone } : null
+
 function toListItem(r: Row, photoCount: number): RequestListItem {
   return {
     id: r.id,
@@ -58,6 +62,7 @@ function toListItem(r: Row, photoCount: number): RequestListItem {
     location: r.location,
     asset: r.asset,
     requestedBy: r.requestedBy,
+    guest: guestOf(r),
     photoCount,
     createdAt: r.createdAt.toISOString(),
   }
@@ -246,7 +251,7 @@ export async function addRequestPhotos(
   const r = await load(auth, id)
   // The reporter adds photos and voice notes while the request is open; reviewers may too.
   const open = r.status === 'NEW' || r.status === 'APPROVED'
-  if (!open || (r.requestedBy.id !== auth.userId && !isReviewer(auth))) throw new ForbiddenError()
+  if (!open || (r.requestedBy?.id !== auth.userId && !isReviewer(auth))) throw new ForbiddenError()
   const ids = await saveAttachments(files, { type: 'REQUEST', id }, auth.userId)
   await recordAudit(
     {
@@ -356,6 +361,7 @@ async function notifyRequester(
   type: 'REQUEST_APPROVED' | 'REQUEST_REJECTED',
   body: string | null,
 ) {
+  if (!r.requestedBy) return // portal guests check the status page instead
   await notify(
     [r.requestedBy.id],
     {

@@ -19,6 +19,7 @@ import type {
   ReceivePoInput,
   StockAdjustmentInput,
   StockSettingsInput,
+  StockTransferInput,
   UseWorkOrderPartInput,
   VendorDetail,
   VendorInput,
@@ -52,6 +53,8 @@ export const partsApi = {
     ),
   adjust: (id: string, input: StockAdjustmentInput) =>
     unwrap(http.post<ApiResponse<PartDetail>>(`/parts/${id}/adjust`, input)),
+  transfer: (id: string, input: StockTransferInput) =>
+    unwrap(http.post<ApiResponse<PartDetail>>(`/parts/${id}/transfer`, input)),
   settings: (id: string, input: StockSettingsInput) =>
     unwrap(http.put<ApiResponse<PartDetail>>(`/parts/${id}/stock-settings`, input)),
 }

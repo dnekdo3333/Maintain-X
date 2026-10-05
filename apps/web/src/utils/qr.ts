@@ -20,6 +20,9 @@ export const assetQrUrl = (publicId: string) => qrUrl('asset', publicId)
 export const locationQrUrl = (publicId: string) => qrUrl('location', publicId)
 export const partQrUrl = (publicId: string) => qrUrl('part', publicId)
 
+/** Public request portal (no login): a restaurant's portalId or a location's publicId. */
+export const portalUrl = (token: string) => `${window.location.origin}/r/${token}`
+
 /** Medium error correction survives smudges and a partly torn label. */
 const OPTIONS = { errorCorrectionLevel: 'M', margin: 1 } as const
 

@@ -10,20 +10,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: maintainx
-          POSTGRES_PASSWORD: maintainx
-          POSTGRES_DB: maintainx_test
-        ports: ['5432:5432']
-        options: >-
-          --health-cmd "pg_isready -U maintainx"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 10
-
     env:
       DATABASE_URL: postgresql://maintainx:maintainx@localhost:5432/maintainx_test?schema=public
       JWT_ACCESS_SECRET: ci-access-secret-ci-access-secret-ci-access-secret
@@ -33,6 +19,15 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      # PostgreSQL comes preinstalled on GitHub's Ubuntu runners: start it
+      # directly (no Docker containers).
+      - name: Start PostgreSQL
+        run: |
+          sudo systemctl start postgresql.service
+          for i in $(seq 1 20); do pg_isready -h localhost && break; sleep 1; done
+          sudo -u postgres psql -c "CREATE USER maintainx WITH PASSWORD 'maintainx' CREATEDB;"
+          sudo -u postgres psql -c "CREATE DATABASE maintainx_test OWNER maintainx;"
 
       - uses: actions/setup-node@v4
         with:

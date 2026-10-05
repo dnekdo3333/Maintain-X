@@ -1,4 +1,5 @@
 import {
+  STRICT_WORKFLOW,
   ALL_PERMISSIONS,
   DEFAULT_ROLE_PERMISSIONS,
   SYSTEM_ROLES,
@@ -52,8 +53,22 @@ export interface Fixture {
 }
 
 /** Organization, permission catalogue, the system roles and N restaurants (R1…Rn, default 2). */
-export async function createFixture(options: { restaurants?: number } = {}): Promise<Fixture> {
+export async function createFixture(
+  options: { restaurants?: number; workflow?: 'strict' | 'simple' } = {},
+): Promise<Fixture> {
   const org = await prisma.organization.create({ data: { name: 'Test Org', slug: 'test-org' } })
+  // Most tests exercise the full flow (photos, report, verification); 'simple'
+  // keeps the MaintainX-style defaults.
+  if ((options.workflow ?? 'strict') === 'strict')
+    await prisma.setting.create({
+      data: {
+        organizationId: org.id,
+        scope: 'ORGANIZATION',
+        scopeKey: 'org',
+        key: 'workOrders.completion',
+        value: { ...STRICT_WORKFLOW },
+      },
+    })
 
   await prisma.permission.createMany({
     data: ALL_PERMISSIONS.map((key) => {

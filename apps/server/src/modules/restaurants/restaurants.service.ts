@@ -41,6 +41,7 @@ export function toRestaurantDto(r: Row): RestaurantDto {
     status: r.status,
     manager: r.manager ?? null,
     contactName: r.contactName,
+    portalId: r.portalId,
     createdAt: r.createdAt.toISOString(),
   }
 }

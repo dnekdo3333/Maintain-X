@@ -118,6 +118,8 @@ export const STEP_INPUT_TYPE = [
   'MULTIPLE_CHOICE',
   'PHOTO',
   'SIGNATURE',
+  /** A heading that groups the steps below it; nothing to answer. */
+  'SECTION',
 ] as const
 export type StepInputType = (typeof STEP_INPUT_TYPE)[number]
 
@@ -238,6 +240,8 @@ export const NOTIFICATION_TYPE = [
   'DUE_SOON',
   'WORK_REOPENED',
   'METER_ALERT',
+  'STORAGE_ALERT',
+  'CHAT_MESSAGE',
 ] as const
 export type NotificationType = (typeof NOTIFICATION_TYPE)[number]
 
@@ -323,3 +327,18 @@ export const FAILURE_CATEGORY = [
   'OTHER',
 ] as const
 export type FailureCategory = (typeof FAILURE_CATEGORY)[number]
+
+export const REPEAT_UNIT = ['DAY', 'WEEK', 'MONTH'] as const
+export type RepeatUnit = (typeof REPEAT_UNIT)[number]
+
+export const REPEAT_BASIS = ['SCHEDULE', 'COMPLETION'] as const
+export type RepeatBasis = (typeof REPEAT_BASIS)[number]
+
+export const CUSTOM_FIELD_ENTITY = ['WORK_ORDER', 'ASSET'] as const
+export type CustomFieldEntity = (typeof CUSTOM_FIELD_ENTITY)[number]
+
+export const CUSTOM_FIELD_TYPE = ['TEXT', 'NUMBER', 'DATE', 'SELECT', 'CHECKBOX'] as const
+export type CustomFieldType = (typeof CUSTOM_FIELD_TYPE)[number]
+
+export const CONVERSATION_TYPE = ['DIRECT', 'GROUP'] as const
+export type ConversationType = (typeof CONVERSATION_TYPE)[number]

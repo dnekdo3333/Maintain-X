@@ -1,4 +1,9 @@
-import { idParamSchema, inspectionTemplateSchema, procedureSchema } from '@maintainx/shared'
+import {
+  SUPPORTED_LOCALES,
+  idParamSchema,
+  inspectionTemplateSchema,
+  procedureSchema,
+} from '@maintainx/shared'
 import { Router } from 'express'
 import { z } from 'zod'
 import { requirePermission } from '../../core/authz.js'
@@ -30,6 +35,25 @@ proceduresRouter.post('/procedures', requirePermission('procedures:create'), asy
     await service.createProcedure(getAuth(req), parseBody(procedureSchema, req), req),
   )
 })
+
+const libraryParams = z.object({ key: z.string().regex(/^[a-z0-9-]{2,40}$/) })
+const libraryBody = z.object({
+  locale: z.enum(SUPPORTED_LOCALES),
+  /** '' = every restaurant. */
+  restaurantId: z.uuid().or(z.literal('')),
+})
+
+proceduresRouter.post(
+  '/procedures/library/:key',
+  requirePermission('procedures:create'),
+  async (req, res) => {
+    const { key } = parseParams(libraryParams, req)
+    sendCreated(
+      res,
+      await service.importLibraryProcedure(getAuth(req), key, parseBody(libraryBody, req), req),
+    )
+  },
+)
 
 proceduresRouter.put('/procedures/:id', requirePermission('procedures:edit'), async (req, res) => {
   const { id } = parseParams(idParamSchema, req)

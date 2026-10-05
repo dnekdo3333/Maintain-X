@@ -1,5 +1,5 @@
-import { UPLOAD_MAX_FILES, fullName, type AttachmentDto } from '@maintainx/shared'
-import { Camera, Film, Mic } from 'lucide-react'
+import { UPLOAD_MAX_FILES, type AttachmentDto } from '@maintainx/shared'
+import { Archive, Camera, Film, Mic } from 'lucide-react'
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button, type ButtonProps } from '@/components/ui/button'
@@ -7,6 +7,7 @@ import { toast } from '@/components/ui/toaster'
 import { reportError } from '@/utils/errors'
 import { formatDateTime } from '@/utils/format'
 import { prepareUploads } from '@/utils/image'
+import { uploaderName } from '@/utils/people'
 
 /** Thumbnails that open the full photo or video in a new tab; voice notes play inline. */
 export function AttachmentGallery({
@@ -24,37 +25,52 @@ export function AttachmentGallery({
     <div className="grid gap-2">
       {voice.length > 0 && (
         <ul className="grid gap-2">
-          {voice.map((a) => (
-            <li
-              key={a.id}
-              className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/40 p-2"
-            >
-              <Mic className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-              <span className="text-13 text-muted-foreground">
-                {t('wo.photoBy', {
-                  name: fullName(a.uploadedBy),
-                  time: formatDateTime(a.createdAt),
-                })}
-              </span>
-              <audio
-                controls
-                preload="none"
-                src={a.url}
-                className="h-9 w-full min-w-0 sm:w-auto sm:flex-1"
+          {voice
+            .filter((a) => !a.removed)
+            .map((a) => (
+              <li
+                key={a.id}
+                className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/40 p-2"
               >
-                <track kind="captions" />
-              </audio>
-            </li>
-          ))}
+                <Mic className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                <span className="text-13 text-muted-foreground">
+                  {t('wo.photoBy', {
+                    name: uploaderName(t, a.uploadedBy),
+                    time: formatDateTime(a.createdAt),
+                  })}
+                </span>
+                <audio
+                  controls
+                  preload="none"
+                  src={a.url}
+                  className="h-9 w-full min-w-0 sm:w-auto sm:flex-1"
+                >
+                  <track kind="captions" />
+                </audio>
+              </li>
+            ))}
         </ul>
       )}
       {visual.length > 0 && (
         <ul className={className ?? 'grid grid-cols-3 gap-2 sm:grid-cols-4'}>
           {visual.map((a) => {
             const caption = t('wo.photoBy', {
-              name: fullName(a.uploadedBy),
+              name: uploaderName(t, a.uploadedBy),
               time: formatDateTime(a.createdAt),
             })
+            // Removed by the retention policy: the record stays, the file is gone.
+            if (a.removed)
+              return (
+                <li key={a.id}>
+                  <span
+                    title={caption}
+                    className="flex aspect-square flex-col items-center justify-center gap-1 rounded-md border border-dashed bg-muted/40 p-1 text-center text-[11px] text-muted-foreground"
+                  >
+                    <Archive className="size-5" aria-hidden />
+                    {t('storage.fileRemoved')}
+                  </span>
+                </li>
+              )
             return (
               <li key={a.id}>
                 <a
@@ -67,7 +83,7 @@ export function AttachmentGallery({
                 >
                   {a.kind === 'PHOTO' ? (
                     <img
-                      src={a.url}
+                      src={a.thumbUrl ?? a.url}
                       alt=""
                       loading="lazy"
                       className="size-full object-cover"

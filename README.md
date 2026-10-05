@@ -23,7 +23,9 @@ docs/         Architecture, roadmap
 ## Prerequisites
 
 - Node.js ≥ 20.19 (24 recommended) and npm ≥ 10
-- PostgreSQL 14+ running locally (or `docker compose up -d` for Postgres + MinIO)
+- PostgreSQL 14+: installed on your machine (Windows/macOS installer or your package manager),
+  or a free [Supabase](https://supabase.com) project (use its connection string as `DATABASE_URL`).
+  No Docker needed.
 
 ## First-time setup
 
@@ -57,7 +59,7 @@ Express API as a serverless function (`api/index.js`). Everything is configured 
    | `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `FILE_SIGNING_SECRET` | three different random strings, 32+ characters                                  |
    | `CRON_SECRET`                                                    | a random string (protects the daily background job)                             |
    | `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD`                        | the first Super Admin (password change forced at first sign-in)                 |
-   | `STORAGE_DRIVER=s3` + `S3_*`                                     | _optional_: permanent storage for photos and documents (Cloudflare R2 / AWS S3) |
+   | `STORAGE_DRIVER=supabase` + `SUPABASE_*`                         | permanent storage for photos and documents in a private Supabase bucket           |
 
 4. **Deploy.** The build:
    - applies migrations and runs the idempotent seed;
@@ -65,8 +67,10 @@ Express API as a serverless function (`api/index.js`). Everything is configured 
 
 Notes:
 
-- **Files:** without S3, uploads work but are temporary, because Vercel's disk is not persistent.
-  Configure S3/R2 for real use.
+- **Files:** without Supabase Storage, uploads work but are temporary, because Vercel's disk is
+  not persistent. Set `STORAGE_DRIVER=supabase`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` and
+  `SUPABASE_BUCKET` (a private bucket, default `maintenance-files`). AWS S3 / Cloudflare R2 also
+  work with `STORAGE_DRIVER=s3`.
 - **Background jobs:** Vercel Cron calls `/api/v1/jobs/run` daily, which is the Hobby plan limit.
   On Pro, change the schedule in `vercel.json` to every 15 minutes.
 - **Upload size:** uploads are limited to 4 MB on Vercel (platform limit). Photos are compressed

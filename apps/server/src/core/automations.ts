@@ -14,6 +14,7 @@ import { nextCode } from './counters.js'
 import { logger } from './logger.js'
 import { notify, usersWithPermission } from './notify.js'
 import { prisma } from './prisma.js'
+import { dispatchWebhooks } from '../modules/integrations/webhooks.service.js'
 
 /*
  * IF <trigger> AND <conditions> THEN <actions>.
@@ -273,6 +274,8 @@ export async function runAutomations(
   trigger: AutomationTrigger,
   ctx: AutomationContext,
 ): Promise<number> {
+  // Integrations hear about every event, including automation-made work.
+  await dispatchWebhooks(trigger, { ...ctx })
   if (trigger === 'WORK_ORDER_CREATED' && ctx.fromAutomation) return 0
   try {
     const rules = await prisma.automation.findMany({

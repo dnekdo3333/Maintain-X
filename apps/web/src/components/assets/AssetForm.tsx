@@ -10,6 +10,13 @@ import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { z } from 'zod'
 import { MoreOptions } from '@/components/common/MoreOptions'
+import { CustomFieldInputs } from '@/components/common/CustomFieldInputs'
+import {
+  customFieldsFormSchema,
+  fromCustomForm,
+  useCustomFieldDefaults,
+} from '@/components/common/custom-fields'
+import { useCustomFields } from '@/services/customization.service'
 import {
   DateField,
   Form,
@@ -53,6 +60,7 @@ const formSchema = z
     parentId: z.string(),
     criticality: z.enum(ASSET_CRITICALITY),
     installDate: z.string(),
+    customFields: customFieldsFormSchema,
   })
   .refine((v) => !v.warrantyStart || !v.warrantyEnd || v.warrantyStart <= v.warrantyEnd, {
     message: 'validation.warrantyEndBeforeStart',
@@ -128,6 +136,7 @@ function AssetFormInner({
           parentId: asset.parent?.id ?? NO_PARENT,
           criticality: asset.criticality,
           installDate: asset.installDate ?? '',
+          customFields: asset.customFields,
         }
       : {
           name: '',
@@ -150,8 +159,11 @@ function AssetFormInner({
           warrantyStart: '',
           warrantyEnd: '',
           notes: '',
+          customFields: {},
         },
   })
+  const customFields = useCustomFields('ASSET')
+  useCustomFieldDefaults(form, customFields.data)
   const selectedRestaurant = form.watch('restaurantId')
   const vendors = useVendorOptions(selectedRestaurant || undefined)
   const locations = useLocations(selectedRestaurant || undefined, !!selectedRestaurant)
@@ -200,6 +212,9 @@ function AssetFormInner({
         locationId: values.locationId === NO_LOCATION ? '' : values.locationId,
         vendorId: values.vendorId === NO_VENDOR ? '' : values.vendorId,
         parentId: values.parentId === NO_PARENT ? '' : values.parentId,
+        customFields: customFields.data
+          ? fromCustomForm(customFields.data, values.customFields)
+          : undefined,
       })
       toast.success(asset ? t('assets.saved') : t('assets.created'))
       onDone(saved)
@@ -259,6 +274,7 @@ function AssetFormInner({
             ]}
           />
         </div>
+        <CustomFieldInputs entity="ASSET" control={form.control} fields={customFields.data} />
         <MoreOptions forceOpen={advancedError} defaultOpen={!!asset}>
           <SelectField
             control={form.control}

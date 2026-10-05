@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { useAuth } from '@/contexts/AuthContext'
 import { describeError } from '@/utils/errors'
 import { homePath, safeRedirect } from '@/utils/redirect'
+import { SsoButtons } from './SsoButtons'
 
 export function LoginPage() {
   const { t } = useTranslation()
@@ -71,6 +72,7 @@ export function LoginPage() {
           </Button>
         </form>
       </Form>
+      <SsoButtons />
 
       <p className="text-center text-13 text-muted-foreground">{t('auth.forgotPassword')}</p>
     </div>

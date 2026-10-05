@@ -8,6 +8,7 @@ import { GuestOnly, RequireAuth, RequirePermission, RequireRoleKind } from './gu
  *   /login, /change-password      auth screens
  *   /…                            admin app (Super Admin, Admin, custom admin roles)
  *   /w/…                          worker app (mobile-first)
+ *   /r/:token                     public request portal (no login)
  *   /status                       public health page
  */
 export const appRoutes: RouteObject[] = [
@@ -64,6 +65,14 @@ export const appRoutes: RouteObject[] = [
       {
         element: <RequireRoleKind kind="ADMIN" />,
         children: [
+          // Print / save as PDF: a clean page without the app chrome.
+          {
+            path: '/work-orders/:workOrderId/print',
+            lazy: async () => ({
+              Component: (await import('@/pages/admin/work-orders/WorkOrderPrintPage'))
+                .WorkOrderPrintPage,
+            }),
+          },
           {
             path: '/',
             // Shells are lazy so the sign-in page doesn't download the app chrome.
@@ -415,6 +424,23 @@ export const appRoutes: RouteObject[] = [
                 ],
               },
               {
+                element: <RequirePermission permission="settings:view" />,
+                children: [
+                  {
+                    path: 'settings',
+                    lazy: async () => ({
+                      Component: (await import('@/pages/admin/settings/SettingsPage')).SettingsPage,
+                    }),
+                  },
+                  {
+                    path: 'storage',
+                    lazy: async () => ({
+                      Component: (await import('@/pages/admin/storage/StoragePage')).StoragePage,
+                    }),
+                  },
+                ],
+              },
+              {
                 element: <RequirePermission permission="roles:view" />,
                 children: [
                   {
@@ -437,6 +463,12 @@ export const appRoutes: RouteObject[] = [
                 lazy: async () => ({
                   Component: (await import('@/pages/notifications/NotificationsPage'))
                     .NotificationsPage,
+                }),
+              },
+              {
+                path: 'chat/:conversationId?',
+                lazy: async () => ({
+                  Component: (await import('@/pages/chat/ChatPage')).AdminChatPage,
                 }),
               },
               {
@@ -487,6 +519,12 @@ export const appRoutes: RouteObject[] = [
                 lazy: async () => ({
                   Component: (await import('@/pages/notifications/NotificationsPage'))
                     .WorkerNotificationsPage,
+                }),
+              },
+              {
+                path: 'chat/:conversationId?',
+                lazy: async () => ({
+                  Component: (await import('@/pages/chat/ChatPage')).WorkerChatPage,
                 }),
               },
               {
@@ -558,6 +596,20 @@ export const appRoutes: RouteObject[] = [
         ],
       },
     ],
+  },
+  // Google / Microsoft sign-in lands here (session already set by the server).
+  {
+    path: '/sso',
+    errorElement: <RouteErrorPage />,
+    lazy: async () => ({ Component: (await import('@/pages/auth/SsoButtons')).SsoReturnPage }),
+  },
+  // Public request portal: a restaurant's link or a location's QR code, no login.
+  {
+    path: '/r/:token',
+    errorElement: <RouteErrorPage />,
+    lazy: async () => ({
+      Component: (await import('@/pages/public/RequestPortalPage')).RequestPortalPage,
+    }),
   },
   {
     path: '/status',

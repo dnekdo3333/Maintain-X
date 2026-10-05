@@ -4,6 +4,7 @@ import {
   fullName,
   type ApiResponse,
   type DashboardActivity,
+  type DashboardWidget,
   type DashboardSummary,
   type DashboardWorkOrder,
   type Priority,
@@ -36,6 +37,8 @@ import {
 } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
+import { CustomizeDashboard } from './CustomizeDashboard'
+import { useDashboardLayout } from './dashboard-layout'
 import { Link, useSearchParams } from 'react-router'
 import { BarList } from '@/components/charts/BarList'
 import { TrendChart } from '@/components/charts/TrendChart'
@@ -660,6 +663,47 @@ function DashboardSkeleton() {
   )
 }
 
+/** Full-width blocks; the rest sit three to a row on large screens. */
+const WIDE: ReadonlySet<DashboardWidget> = new Set([
+  'today',
+  'kpis',
+  'secondary',
+  'lists',
+  'restaurants',
+  'activity',
+])
+
+function DashboardBlocks({
+  widgets,
+  blocks,
+  fetching,
+}: {
+  widgets: DashboardWidget[]
+  blocks: Record<DashboardWidget, ReactNode>
+  fetching: boolean
+}) {
+  return (
+    <div
+      className={cn(
+        'grid gap-4 transition-opacity lg:grid-flow-row-dense lg:grid-cols-3',
+        fetching && 'opacity-80',
+      )}
+    >
+      {widgets.map((w) =>
+        blocks[w] ? (
+          <div
+            key={w}
+            data-widget={w}
+            className={cn('min-w-0', WIDE.has(w) ? 'lg:col-span-3' : w === 'trend' && 'lg:col-span-2')}
+          >
+            {blocks[w]}
+          </div>
+        ) : null,
+      )}
+    </div>
+  )
+}
+
 export function DashboardPage() {
   const { t } = useTranslation()
   const { restaurantId } = useRestaurantScope()
@@ -680,6 +724,7 @@ export function DashboardPage() {
   const query = useDashboard(restaurantId, filters)
   const user = useCurrentUser()
   const periodHint = t('dashboard.lastDays', { count: Number(filters.period) })
+  const layout = useDashboardLayout()
 
   return (
     <>
@@ -732,6 +777,8 @@ export function DashboardPage() {
             label: enumLabel(t, 'workOrderType', v),
           }))}
         />
+        <span className="flex-1" />
+        <CustomizeDashboard layout={layout} />
       </div>
 
       {query.isPending ? (
@@ -739,40 +786,43 @@ export function DashboardPage() {
       ) : query.isError ? (
         <ErrorState error={query.error} onRetry={() => void query.refetch()} />
       ) : (
-        <div className={cn('grid gap-4 transition-opacity', query.isFetching && 'opacity-80')}>
-          <TodayBoard data={query.data} />
-          <KpiStrip data={query.data} periodHint={periodHint} />
-          <SecondaryStats data={query.data} />
-
-          <div className="grid gap-4 lg:grid-cols-3">
-            <Panel className="lg:col-span-2">
-              <PanelHeader>
-                <PanelTitle>{t('dashboard.trend')}</PanelTitle>
-              </PanelHeader>
-              <PanelBody>
-                <TrendChart
-                  label={t('dashboard.trendLabel', { period: periodHint })}
-                  dates={query.data.trend.map((p) => p.date)}
-                  series={[
-                    {
-                      key: 'created',
-                      label: t('dashboard.seriesCreated'),
-                      colorClass: 'text-chart-1',
-                      swatchClass: 'bg-chart-1',
-                      values: query.data.trend.map((p) => p.created),
-                    },
-                    {
-                      key: 'completed',
-                      label: t('dashboard.seriesCompleted'),
-                      colorClass: 'text-chart-2',
-                      swatchClass: 'bg-chart-2',
-                      values: query.data.trend.map((p) => p.completed),
-                    },
-                  ]}
-                />
-              </PanelBody>
-            </Panel>
-            <div className="grid content-start gap-4">
+        <DashboardBlocks
+          widgets={layout.widgets}
+          fetching={query.isFetching}
+          blocks={{
+            today: <TodayBoard data={query.data} />,
+            kpis: <KpiStrip data={query.data} periodHint={periodHint} />,
+            secondary: <SecondaryStats data={query.data} />,
+            trend: (
+              <Panel>
+                <PanelHeader>
+                  <PanelTitle>{t('dashboard.trend')}</PanelTitle>
+                </PanelHeader>
+                <PanelBody>
+                  <TrendChart
+                    label={t('dashboard.trendLabel', { period: periodHint })}
+                    dates={query.data.trend.map((p) => p.date)}
+                    series={[
+                      {
+                        key: 'created',
+                        label: t('dashboard.seriesCreated'),
+                        colorClass: 'text-chart-1',
+                        swatchClass: 'bg-chart-1',
+                        values: query.data.trend.map((p) => p.created),
+                      },
+                      {
+                        key: 'completed',
+                        label: t('dashboard.seriesCompleted'),
+                        colorClass: 'text-chart-2',
+                        swatchClass: 'bg-chart-2',
+                        values: query.data.trend.map((p) => p.completed),
+                      },
+                    ]}
+                  />
+                </PanelBody>
+              </Panel>
+            ),
+            cost: (
               <Panel>
                 <PanelHeader>
                   <PanelTitle className="flex items-center gap-2">
@@ -784,6 +834,8 @@ export function DashboardPage() {
                   <CostBreakdownView cost={query.data.cost} />
                 </PanelBody>
               </Panel>
+            ),
+            mix: (
               <Panel>
                 <PanelHeader>
                   <PanelTitle>{t('dashboard.mix')}</PanelTitle>
@@ -792,73 +844,76 @@ export function DashboardPage() {
                   <MixBar mix={query.data.mix} />
                 </PanelBody>
               </Panel>
-            </div>
-          </div>
-
-          <div className="grid gap-4 lg:grid-cols-3">
-            <Panel>
-              <PanelHeader>
-                <PanelTitle>{t('dashboard.byPriority')}</PanelTitle>
-              </PanelHeader>
-              <PanelBody>
-                <BarList
-                  items={[...PRIORITY].reverse().map((p) => ({
-                    key: p,
-                    label: <StatusBadge kind="priority" value={p} />,
-                    value: query.data.byPriority[p],
-                    to: `/work-orders?priority=${p}&view=active`,
-                  }))}
-                />
-              </PanelBody>
-            </Panel>
-            <Panel>
-              <PanelHeader>
-                <PanelTitle>{t('dashboard.byStatus')}</PanelTitle>
-              </PanelHeader>
-              <PanelBody>
-                {query.data.byStatus.length === 0 ? (
-                  <p className="text-13 text-muted-foreground">{t('dashboard.statusEmpty')}</p>
-                ) : (
+            ),
+            priority: (
+              <Panel>
+                <PanelHeader>
+                  <PanelTitle>{t('dashboard.byPriority')}</PanelTitle>
+                </PanelHeader>
+                <PanelBody>
                   <BarList
-                    items={query.data.byStatus.map((s) => ({
-                      key: s.status,
-                      label: <StatusBadge kind="workOrderStatus" value={s.status} />,
-                      value: s.count,
-                      to: `/work-orders?status=${s.status}`,
+                    items={[...PRIORITY].reverse().map((p) => ({
+                      key: p,
+                      label: <StatusBadge kind="priority" value={p} />,
+                      value: query.data.byPriority[p],
+                      to: `/work-orders?priority=${p}&view=active`,
                     }))}
                   />
-                )}
-              </PanelBody>
-            </Panel>
-            <WorkloadPanel rows={query.data.workload} />
-          </div>
-
-          <div className="grid gap-4 lg:grid-cols-3">
-            <WorkOrderList
-              title={t('dashboard.today')}
-              icon={CalendarClock}
-              items={query.data.todaysTasks}
-              empty={t('dashboard.todayEmpty')}
-              emptyIcon={CheckCheck}
-            />
-            <WorkOrderList
-              title={t('dashboard.critical')}
-              icon={AlertTriangle}
-              items={query.data.criticalIssues}
-              empty={t('dashboard.criticalEmpty')}
-              emptyIcon={ShieldCheck}
-            />
-            <WorkOrderList
-              title={t('dashboard.overdue')}
-              icon={Clock}
-              items={query.data.overdueTasks}
-              empty={t('dashboard.overdueEmpty')}
-              emptyIcon={CheckCheck}
-            />
-          </div>
-          {query.data.restaurants.length > 1 && <RestaurantTable rows={query.data.restaurants} />}
-          <ActivityFeed items={query.data.recentActivity} />
-        </div>
+                </PanelBody>
+              </Panel>
+            ),
+            status: (
+              <Panel>
+                <PanelHeader>
+                  <PanelTitle>{t('dashboard.byStatus')}</PanelTitle>
+                </PanelHeader>
+                <PanelBody>
+                  {query.data.byStatus.length === 0 ? (
+                    <p className="text-13 text-muted-foreground">{t('dashboard.statusEmpty')}</p>
+                  ) : (
+                    <BarList
+                      items={query.data.byStatus.map((s) => ({
+                        key: s.status,
+                        label: <StatusBadge kind="workOrderStatus" value={s.status} />,
+                        value: s.count,
+                        to: `/work-orders?status=${s.status}`,
+                      }))}
+                    />
+                  )}
+                </PanelBody>
+              </Panel>
+            ),
+            workload: <WorkloadPanel rows={query.data.workload} />,
+            lists: (
+              <div className="grid gap-4 lg:grid-cols-3">
+                <WorkOrderList
+                  title={t('dashboard.today')}
+                  icon={CalendarClock}
+                  items={query.data.todaysTasks}
+                  empty={t('dashboard.todayEmpty')}
+                  emptyIcon={CheckCheck}
+                />
+                <WorkOrderList
+                  title={t('dashboard.critical')}
+                  icon={AlertTriangle}
+                  items={query.data.criticalIssues}
+                  empty={t('dashboard.criticalEmpty')}
+                  emptyIcon={ShieldCheck}
+                />
+                <WorkOrderList
+                  title={t('dashboard.overdue')}
+                  icon={Clock}
+                  items={query.data.overdueTasks}
+                  empty={t('dashboard.overdueEmpty')}
+                  emptyIcon={CheckCheck}
+                />
+              </div>
+            ),
+            restaurants:
+              query.data.restaurants.length > 1 ? <RestaurantTable rows={query.data.restaurants} /> : null,
+            activity: <ActivityFeed items={query.data.recentActivity} />,
+          }}
+        />
       )}
     </>
   )

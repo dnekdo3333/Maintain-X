@@ -1,5 +1,6 @@
 import {
   AUTH_CSRF_HEADER,
+  STRICT_WORKFLOW,
   AUTH_CSRF_VALUE,
   addDays,
   type CalendarItem,
@@ -134,6 +135,7 @@ describe('Phase 6 — technician hand-in', () => {
     })
     expect(Object.keys(missing.body.error.fieldErrors).sort()).toEqual([
       'finalCondition',
+      'noPartsUsed',
       'problemFound',
       'workPerformed',
     ])
@@ -176,14 +178,15 @@ describe('Phase 6 — technician hand-in', () => {
   })
 
   it('the photo rules can be switched off for the organization', async () => {
-    await prisma.setting.create({
-      data: {
-        organizationId: fx.orgId,
-        scope: 'ORGANIZATION',
-        scopeKey: 'org',
-        key: COMPLETION_POLICY_KEY,
-        value: { requireBeforePhoto: false, requireAfterPhoto: false },
+    await prisma.setting.update({
+      where: {
+        organizationId_scopeKey_key: {
+          organizationId: fx.orgId,
+          scopeKey: 'org',
+          key: COMPLETION_POLICY_KEY,
+        },
       },
+      data: { value: { ...STRICT_WORKFLOW, requireBeforePhoto: false, requireAfterPhoto: false } },
     })
     const w = await started()
     expect((await worker.post(`/work-orders/${w.id}/complete`, report())).body.data.status).toBe(

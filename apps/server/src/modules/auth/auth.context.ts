@@ -9,6 +9,8 @@ export interface AuthContext {
   permissions: ReadonlySet<Permission>
   /** Restaurants in scope. Ignored for Super Admin (all restaurants). */
   restaurantIds: ReadonlySet<string>
+  /** Set when the request came in with an API key instead of a signed-in session. */
+  apiKeyId?: string
 }
 
 export function buildAuthContext(user: AuthUser): AuthContext {

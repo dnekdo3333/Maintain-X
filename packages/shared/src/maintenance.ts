@@ -224,6 +224,14 @@ export interface PmScheduleDetail extends PmScheduleListItem {
 
 // ---------------------------------------------------------------- procedures
 
+/** "Show only if step 3 is FAIL" / "… if step 2 is 'Dirty'". */
+export const stepConditionSchema = z.object({
+  step: z.number().int().min(1).max(100),
+  /** PASS / FAIL / NA, or one of a multiple-choice step's options. */
+  answer: z.string().trim().min(1).max(80),
+})
+export type StepCondition = z.infer<typeof stepConditionSchema>
+
 export const procedureStepSchema = z
   .object({
     title: z.string().trim().min(2).max(200),
@@ -237,6 +245,8 @@ export const procedureStepSchema = z
     options: z.array(z.string().trim().min(1).max(80)).max(10).optional(),
     /** A photo must be attached before the step counts as done. */
     requirePhoto: z.boolean().optional(),
+    /** Only show this step when step #step (1-based, earlier) was answered `answer`. */
+    showIf: stepConditionSchema.nullable().optional(),
   })
   .superRefine((s, ctx) => {
     if (s.minValue !== undefined && s.maxValue !== undefined && s.minValue > s.maxValue)
@@ -257,7 +267,19 @@ export const procedureSchema = z.object({
   category: z.enum(WORK_ORDER_CATEGORY).or(z.literal('')),
   /** '' = every restaurant. */
   restaurantId: optionalUuid,
-  steps: z.array(procedureStepSchema).min(1, 'validation.stepsRequired').max(100),
+  steps: z
+    .array(procedureStepSchema)
+    .min(1, 'validation.stepsRequired')
+    .max(100)
+    .superRefine((steps, ctx) => {
+      steps.forEach((s, i) => {
+        if (!s.showIf) return
+        const target = steps[s.showIf.step - 1]
+        // Conditions point back to an earlier step that can be answered.
+        if (s.showIf.step > i || !target || target.inputType === 'SECTION')
+          ctx.addIssue({ code: 'custom', path: [i, 'showIf'], message: 'validation.invalidValue' })
+      })
+    }),
 })
 export type ProcedureInput = z.infer<typeof procedureSchema>
 
@@ -273,6 +295,7 @@ export interface ProcedureStepDto {
   required: boolean
   options: string[]
   requirePhoto: boolean
+  showIf: StepCondition | null
 }
 
 export interface ProcedureListItem {
@@ -337,6 +360,8 @@ export function evaluateAnswer(
     textValue: null,
   }
   switch (step.inputType) {
+    case 'SECTION':
+      return { result: null, numericValue: null, textValue: null }
     case 'CHECKBOX':
       // Ticked = done. Unticking clears it.
       return {
@@ -448,10 +473,45 @@ export function stepIsDone(step: {
   requirePhoto: boolean
   result: StepResult | null
   photoCount: number
+  inputType?: StepInputType
 }): boolean {
+  if (step.inputType === 'SECTION') return true
   if (step.result === 'NA') return true
   if (step.required && step.result === null) return false
   if (step.requirePhoto && step.result !== null && step.photoCount === 0) return false
   if (step.requirePhoto && step.required && step.photoCount === 0) return false
   return true
+}
+
+/** Did this step get the answer a condition asks for? */
+export function answerMatches(
+  step: { result: StepResult | null; textValue: string | null },
+  answer: string,
+): boolean {
+  if (step.result === null) return false
+  if ((STEP_RESULT as readonly string[]).includes(answer)) return step.result === answer
+  return (step.textValue ?? '').toLowerCase() === answer.toLowerCase()
+}
+
+/**
+ * Positions of steps hidden by their condition (the referenced step isn't
+ * answered that way, or is itself hidden). Hidden steps don't block completion.
+ */
+export function hiddenSteps(
+  items: ReadonlyArray<{
+    position: number
+    showIf: StepCondition | null
+    result: StepResult | null
+    textValue: string | null
+  }>,
+): Set<number> {
+  const byPosition = new Map(items.map((i) => [i.position, i]))
+  const hidden = new Set<number>()
+  for (const i of [...items].sort((a, b) => a.position - b.position)) {
+    if (!i.showIf) continue
+    const target = byPosition.get(i.showIf.step)
+    if (!target || hidden.has(target.position) || !answerMatches(target, i.showIf.answer))
+      hidden.add(i.position)
+  }
+  return hidden
 }

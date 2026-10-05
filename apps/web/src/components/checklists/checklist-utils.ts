@@ -1,4 +1,4 @@
-import { stepIsDone, type ChecklistItemDto } from '@maintainx/shared'
+import { hiddenSteps, stepIsDone, type ChecklistItemDto } from '@maintainx/shared'
 import type { TFunction } from 'i18next'
 import { formatNumber } from '@/utils/format'
 import { looseT } from '@/utils/i18n'
@@ -23,9 +23,21 @@ export function rangeLabel(
   return ''
 }
 
-export const checklistProgress = (items: ChecklistItemDto[]) => ({
-  answered: items.filter((i) => i.result !== null).length,
-  /** Steps blocking submission (incl. a required photo that's missing) — same rule as the server. */
-  requiredLeft: items.filter((i) => !stepIsDone({ ...i, photoCount: i.attachments.length })).length,
-  failed: items.filter((i) => i.result === 'FAIL').length,
-})
+/** Steps a person should see: section headings and steps whose condition holds. */
+export const visibleSteps = (items: ChecklistItemDto[]) => {
+  const hidden = hiddenSteps(items)
+  return items.filter((i) => !hidden.has(i.position))
+}
+
+export const checklistProgress = (all: ChecklistItemDto[]) => {
+  const items = visibleSteps(all).filter((i) => i.inputType !== 'SECTION')
+  return {
+    /** Answerable steps on screen now (headings and hidden steps don't count). */
+    total: items.length,
+    answered: items.filter((i) => i.result !== null).length,
+    /** Steps blocking submission (incl. a required photo that's missing) — same rule as the server. */
+    requiredLeft: items.filter((i) => !stepIsDone({ ...i, photoCount: i.attachments.length }))
+      .length,
+    failed: items.filter((i) => i.result === 'FAIL').length,
+  }
+}

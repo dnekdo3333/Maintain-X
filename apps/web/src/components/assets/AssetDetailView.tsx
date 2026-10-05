@@ -13,6 +13,7 @@ import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router'
 import { Callout } from '@/components/common/Callout'
 import { DetailList } from '@/components/common/DetailList'
+import { CustomFieldValues } from '@/components/common/CustomFieldInputs'
 import { StatusBadge } from '@/components/common/StatusBadge'
 import { Button } from '@/components/ui/button'
 import { Panel, PanelBody, PanelHeader, PanelTitle } from '@/components/ui/panel'
@@ -103,6 +104,9 @@ export function AssetDetailView({ asset, compact = false }: AssetDetailViewProps
             { label: t('assets.notes'), value: asset.notes, hidden: !asset.notes },
           ]}
         />
+        <div className="pb-3">
+          <CustomFieldValues entity="ASSET" values={asset.customFields} />
+        </div>
       </PanelBody>
     </Panel>
   )

@@ -201,6 +201,7 @@ describe('requests', () => {
     location: null,
     asset: null,
     requestedBy: ravi,
+    guest: null,
     photoCount: 0,
     createdAt: '2026-10-01T08:00:00.000Z',
     description: 'Fridge not cooling, ice on the back wall',

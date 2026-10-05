@@ -9,6 +9,7 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Panel, PanelBody, PanelHeader, PanelTitle } from '@/components/ui/panel'
+import { TestNotificationButton } from './TestNotificationButton'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { toast } from '@/components/ui/toaster'
@@ -55,8 +56,9 @@ export function NotificationSettings() {
 
   return (
     <Panel>
-      <PanelHeader>
+      <PanelHeader className="flex items-center justify-between gap-2">
         <PanelTitle>{t('notifications.settings')}</PanelTitle>
+        <TestNotificationButton />
       </PanelHeader>
       <PanelBody className="grid gap-1">
         <p className="mb-2 text-13 text-muted-foreground">{t('notifications.settingsHint')}</p>

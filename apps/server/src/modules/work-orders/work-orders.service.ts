@@ -1,6 +1,7 @@
 import {
   ERROR_CODES,
   WORK_ORDER_ACTIVE_STATUSES,
+  addRepeat,
   WORK_ORDER_CANCELLABLE_STATUSES,
   WORK_ORDER_DONE_STATUSES,
   WORK_ORDER_REOPENABLE_STATUSES,
@@ -8,6 +9,7 @@ import {
   canTransitionWorkOrder,
   evaluateAnswer,
   fullName,
+  type RepeatRule,
   isWorkOrderOverdue,
   type AssigneeWorkload,
   type AssignWorkOrderInput,
@@ -69,6 +71,14 @@ import { notify, usersWithPermission } from '../../core/notify.js'
 import { toPagedResponse, toSkipTake } from '../../core/pagination.js'
 import { prisma } from '../../core/prisma.js'
 import type { AuthContext } from '../auth/auth.context.js'
+import { guestOf } from '../requests/requests.service.js'
+import {
+  assertLabels,
+  labelSelect,
+  resolveCustomValues,
+  storedValues,
+  toLabels,
+} from '../../core/custom-fields.js'
 import { changeAssetStatus } from '../assets/assets.service.js'
 
 /*
@@ -92,6 +102,7 @@ const listInclude = {
   vendor: { select: { id: true, name: true } },
   helpers: { select: { userId: true } },
   children: { where: { archivedAt: null }, select: { status: true } },
+  labels: { select: labelSelect },
 } satisfies Prisma.WorkOrderInclude
 
 type ListRow = Prisma.WorkOrderGetPayload<{ include: typeof listInclude }>
@@ -125,6 +136,7 @@ function toListItem(w: ListRow, now = new Date()): WorkOrderListItem {
       done: children.filter((c) => DONE.includes(c.status)).length,
       total: children.length,
     },
+    labels: toLabels(w.labels),
     createdAt: w.createdAt.toISOString(),
   }
 }
@@ -371,6 +383,134 @@ function audit(
 const woUrl = (id: string, forWorker: boolean) =>
   forWorker ? `/w/tasks/${id}` : `/work-orders/${id}`
 
+/** Repeat rule → columns (null clears it). */
+function repeatData(r: RepeatRule | null) {
+  return r
+    ? { repeatEvery: r.every, repeatUnit: r.unit, repeatBasis: r.basis }
+    : { repeatEvery: null, repeatUnit: null, repeatBasis: null }
+}
+
+/**
+ * A repeating job was finished: create its next occurrence (once; the unique
+ * repeatedFromId makes a second call a no-op). The due date counts from this
+ * job's due date (skipping dates already past) or from when it was completed.
+ */
+async function createNextRepeat(auth: AuthContext, id: string, req: Request) {
+  const w = await prisma.workOrder.findUnique({
+    where: { id },
+    include: {
+      helpers: { select: { userId: true } },
+      checklistItems: { orderBy: { position: 'asc' } },
+      repeatedBy: { select: { id: true } },
+      labels: { select: { labelId: true } },
+    },
+  })
+  if (!w || !w.repeatEvery || !w.repeatUnit || !w.repeatBasis || w.repeatedBy) return
+  const rule = { every: w.repeatEvery, unit: w.repeatUnit }
+  const now = new Date()
+  let due: Date
+  if (w.repeatBasis === 'COMPLETION') due = addRepeat(w.completedAt ?? now, rule)
+  else {
+    due = addRepeat(w.dueDate ?? w.createdAt, rule)
+    for (let i = 0; due <= now && i < 1000; i++) due = addRepeat(due, rule)
+  }
+  // Keep the same lead time between planned start and due date.
+  const scheduledStart =
+    w.scheduledStart && w.dueDate
+      ? new Date(due.getTime() - (w.dueDate.getTime() - w.scheduledStart.getTime()))
+      : null
+  const helperIds = w.helpers.map((h) => h.userId)
+  const status = placedStatus({ ...w, scheduledStart })
+  let next
+  try {
+    next = await prisma.$transaction(async (tx) => {
+      const code = await nextCode(tx, w.organizationId, 'WO', 6)
+      const created = await tx.workOrder.create({
+        data: {
+          organizationId: w.organizationId,
+          code,
+          title: w.title,
+          description: w.description,
+          type: w.type,
+          category: w.category,
+          restaurantId: w.restaurantId,
+          locationId: w.locationId,
+          assetId: w.assetId,
+          priority: w.priority,
+          status,
+          assignedUserId: w.assignedUserId,
+          assignedTeamId: w.assignedTeamId,
+          scheduledStart,
+          dueDate: due,
+          estimatedMinutes: w.estimatedMinutes,
+          vendorId: w.vendorId,
+          supervisorId: w.supervisorId,
+          procedureId: w.procedureId,
+          createdById: w.createdById,
+          repeatEvery: w.repeatEvery,
+          repeatUnit: w.repeatUnit,
+          repeatBasis: w.repeatBasis,
+          repeatedFromId: w.id,
+          customFields: w.customFields ?? {},
+          ...(w.labels.length
+            ? { labels: { createMany: { data: w.labels.map((l) => ({ labelId: l.labelId })) } } }
+            : {}),
+        },
+      })
+      if (helperIds.length)
+        await tx.workOrderAssignment.createMany({
+          data: helperIds.map((userId) => ({
+            workOrderId: created.id,
+            userId,
+            addedById: auth.userId,
+          })),
+        })
+      if (w.checklistItems.length)
+        await tx.workOrderChecklistItem.createMany({
+          data: w.checklistItems.map((c) => ({
+            workOrderId: created.id,
+            position: c.position,
+            title: c.title,
+            instruction: c.instruction,
+            inputType: c.inputType,
+            unit: c.unit,
+            minValue: c.minValue,
+            maxValue: c.maxValue,
+            required: c.required,
+            options: c.options,
+            requirePhoto: c.requirePhoto,
+            showIfPosition: c.showIfPosition,
+            showIfAnswer: c.showIfAnswer,
+          })),
+        })
+      await writeHistory(tx, created.id, null, 'OPEN', auth.userId, w.code)
+      if (status !== 'OPEN') await writeHistory(tx, created.id, 'OPEN', status, auth.userId)
+      await recordAudit(
+        audit(auth, created, 'work_order.repeated', {
+          newValue: { code, dueDate: due.toISOString(), repeatedFrom: w.code },
+        }),
+        req,
+        tx,
+      )
+      return created
+    })
+  } catch (err) {
+    // Someone else created it a moment ago.
+    if ((err as { code?: string }).code === 'P2002') return
+    throw err
+  }
+  await notify(await crew({ ...next, helperIds }), {
+    organizationId: auth.organizationId,
+    type: 'TASK_ASSIGNED',
+    title: `${next.code} · ${next.title}`,
+    body: null,
+    entityType: 'WORK_ORDER',
+    entityId: next.id,
+    actionUrl: woUrl(next.id, true),
+    priority: next.priority,
+  })
+}
+
 /** Status a published work order lands in from its assignment and planned start. */
 function placedStatus(v: {
   assignedUserId: string | null
@@ -489,6 +629,7 @@ export async function listWorkOrders(
   if (q.assignedTeamId) and.push({ assignedTeamId: q.assignedTeamId })
   if (q.vendorId) and.push({ vendorId: q.vendorId })
   if (q.parentId) and.push({ parentId: q.parentId })
+  if (q.labelId) and.push({ labels: { some: { labelId: q.labelId } } })
   if (q.from) and.push({ createdAt: { gte: new Date(`${q.from}T00:00:00Z`) } })
   if (q.to)
     and.push({ createdAt: { lt: new Date(new Date(`${q.to}T00:00:00Z`).getTime() + 864e5) } })
@@ -551,6 +692,8 @@ export async function getWorkOrder(auth: AuthContext, id: string): Promise<WorkO
       },
       helpers: { include: { user: person }, orderBy: { addedAt: 'asc' } },
       parent: { select: { id: true, code: true, title: true, status: true } },
+      repeatedFrom: { select: { id: true, code: true } },
+      repeatedBy: { select: { id: true, code: true, dueDate: true } },
       children: {
         where: { archivedAt: null },
         select: { id: true, code: true, title: true, status: true, assignedUser: person },
@@ -561,7 +704,16 @@ export async function getWorkOrder(auth: AuthContext, id: string): Promise<WorkO
         orderBy: { createdAt: 'asc' },
       },
       completion: { include: { confirmedBy: person } },
-      sourceRequest: { select: { id: true, code: true, description: true, requestedBy: person } },
+      sourceRequest: {
+        select: {
+          id: true,
+          code: true,
+          description: true,
+          requestedBy: person,
+          guestName: true,
+          guestPhone: true,
+        },
+      },
       messages: {
         // Internal notes are for managers only.
         where: {
@@ -645,6 +797,15 @@ export async function getWorkOrder(auth: AuthContext, id: string): Promise<WorkO
   return {
     ...toListItem(base),
     description: w.description,
+    customFields: storedValues(w.customFields),
+    repeat:
+      w.repeatEvery && w.repeatUnit && w.repeatBasis
+        ? { every: w.repeatEvery, unit: w.repeatUnit, basis: w.repeatBasis }
+        : null,
+    repeatedFrom: w.repeatedFrom,
+    repeatedBy: w.repeatedBy
+      ? { id: w.repeatedBy.id, code: w.repeatedBy.code, dueDate: isoOrNull(w.repeatedBy.dueDate) }
+      : null,
     estimatedMinutes: w.estimatedMinutes,
     minutesWorked,
     timerRunning: w.timeEntries.some((e) => e.endedAt === null),
@@ -704,6 +865,8 @@ export async function getWorkOrder(auth: AuthContext, id: string): Promise<WorkO
       stepsLeft: unanswered(w.checklistItems, stepPhotos),
       needsBeforePhoto: policy.requireBeforePhoto && evidence.BEFORE === 0,
       needsAfterPhoto: policy.requireAfterPhoto && evidence.AFTER === 0,
+      reportRequired: policy.requireRepairReport,
+      verificationRequired: policy.requireVerification,
       subWorkOrdersOpen: w.children.filter((c) => ACTIVE.includes(c.status) || c.status === 'DRAFT')
         .length,
       evidence,
@@ -739,7 +902,14 @@ export async function getWorkOrder(auth: AuthContext, id: string): Promise<WorkO
       createdAt: r.createdAt.toISOString(),
     })),
     sourceRequest: w.sourceRequest
-      ? { ...w.sourceRequest, attachments: attachmentsOf(files, 'REQUEST', w.sourceRequest.id) }
+      ? {
+          id: w.sourceRequest.id,
+          code: w.sourceRequest.code,
+          description: w.sourceRequest.description,
+          requestedBy: w.sourceRequest.requestedBy,
+          guest: guestOf(w.sourceRequest),
+          attachments: attachmentsOf(files, 'REQUEST', w.sourceRequest.id),
+        }
       : null,
     attachments,
     messages: w.messages.map((m) => ({
@@ -789,6 +959,7 @@ export async function createWorkOrder(
     vendorId: input.vendorId ? input.vendorId : null,
     supervisorId: input.supervisorId ? input.supervisorId : null,
     parentId: input.parentId ? input.parentId : null,
+    ...repeatData(input.repeat ?? null),
   }
   const assigning = !!(data.assignedUserId || data.assignedTeamId || helperIds.length)
   if (assigning && !hasPermission(auth, 'work_orders:assign')) throw new ForbiddenError()
@@ -796,6 +967,12 @@ export async function createWorkOrder(
   if (data.parentId) await validateParent(auth, data.parentId, data.restaurantId)
   const procedureId = input.procedureId || null
   if (procedureId) await assertProcedureUsable(auth, procedureId, data.restaurantId)
+  const customFields = await resolveCustomValues(
+    auth.organizationId,
+    'WORK_ORDER',
+    input.customFields ?? {},
+  )
+  const labelIds = await assertLabels(auth.organizationId, input.labelIds ?? [])
 
   const request = input.requestId
     ? await prisma.request.findFirst({
@@ -829,6 +1006,10 @@ export async function createWorkOrder(
         code,
         status,
         createdById: auth.userId,
+        customFields,
+        ...(labelIds.length
+          ? { labels: { createMany: { data: labelIds.map((labelId) => ({ labelId })) } } }
+          : {}),
       },
     })
     if (helperIds.length) {
@@ -892,7 +1073,7 @@ export async function createWorkOrder(
       label: `${wo.code} · ${wo.title}`,
     })
   }
-  if (request) {
+  if (request?.requestedById) {
     await notify(
       [request.requestedById],
       {
@@ -949,6 +1130,7 @@ export async function updateWorkOrder(
       : {}),
     ...(input.vendorId !== undefined ? { vendorId: input.vendorId || null } : {}),
     ...(input.supervisorId !== undefined ? { supervisorId: input.supervisorId || null } : {}),
+    ...(input.repeat !== undefined ? repeatData(input.repeat) : {}),
   }
   // Moving restaurants would invalidate the assignee; reassign instead.
   if (
@@ -961,6 +1143,13 @@ export async function updateWorkOrder(
     throw new ValidationError({ restaurantId: ['validation.invalidValue'] })
   }
   await validateRefs(auth, data)
+  const customFields = await resolveCustomValues(
+    auth.organizationId,
+    'WORK_ORDER',
+    input.customFields,
+  )
+  const labelIds =
+    input.labelIds === undefined ? undefined : await assertLabels(auth.organizationId, input.labelIds)
 
   // Setting or clearing the planned start moves ASSIGNED ⇄ SCHEDULED.
   const scheduledStart =
@@ -972,9 +1161,16 @@ export async function updateWorkOrder(
   await prisma.$transaction(async (tx) => {
     const done = await tx.workOrder.updateMany({
       where: { id, status: before.status },
-      data: { ...data, status: nextStatus },
+      data: { ...data, status: nextStatus, ...(customFields ? { customFields } : {}) },
     })
     if (done.count === 0) throw invalidTransition()
+    if (labelIds) {
+      await tx.workOrderLabel.deleteMany({ where: { workOrderId: id } })
+      if (labelIds.length)
+        await tx.workOrderLabel.createMany({
+          data: labelIds.map((labelId) => ({ workOrderId: id, labelId })),
+        })
+    }
     if (nextStatus !== before.status)
       await writeHistory(tx, id, before.status, nextStatus, auth.userId)
     await recordAudit(
@@ -1328,11 +1524,24 @@ export async function completeWorkOrder(
       { details: { missing } },
     )
   }
-  // Parts: either recorded on the job, or explicitly "none needed".
-  if (partLines === 0 && !input.noPartsUsed) {
-    throw new ValidationError({ noPartsUsed: ['validation.partsInfoRequired'] })
+  if (policy.requireRepairReport) {
+    // The full report: what was found, what was done, the result, a confirmation,
+    // and parts either recorded on the job or explicitly "none needed".
+    const errors: Record<string, string[]> = {}
+    if (!input.problemFound) errors.problemFound = ['validation.required']
+    if (!input.workPerformed) errors.workPerformed = ['validation.required']
+    if (!input.finalCondition) errors.finalCondition = ['validation.required']
+    if (input.confirmed !== true) errors.confirmed = ['validation.confirmRequired']
+    if (partLines === 0 && !input.noPartsUsed) errors.noPartsUsed = ['validation.partsInfoRequired']
+    if (Object.keys(errors).length) throw new ValidationError(errors)
   }
-  const notes = input.notes || input.workPerformed
+  // One-tap completion (MaintainX default): sensible values for the record.
+  const problemFound = input.problemFound || w.title
+  const workPerformed = input.workPerformed || input.notes || 'Completed'
+  const finalCondition = input.finalCondition ?? 'FULLY_WORKING'
+  const notes = input.notes || input.workPerformed || null
+  // With verification off the job is done straight away.
+  const finalStatus: WorkOrderStatus = policy.requireVerification ? 'REVIEW' : 'CLOSED'
   const corrective: Array<{ id: string; code: string; title: string }> = []
 
   await transition(auth, w, 'COMPLETED', req, {
@@ -1348,12 +1557,16 @@ export async function completeWorkOrder(
       const labourMinutes = entries.reduce((s, e) => s + (e.minutes ?? 0), 0)
       await tx.workOrder.update({
         where: { id },
-        data: { status: 'REVIEW', actualMinutes: labourMinutes },
+        data: {
+          status: finalStatus,
+          actualMinutes: labourMinutes,
+          ...(finalStatus === 'CLOSED' ? { closedAt: at, closedById: auth.userId } : {}),
+        },
       })
       const report = {
-        problemFound: input.problemFound,
+        problemFound,
         rootCause: input.rootCause || null,
-        workPerformed: input.workPerformed,
+        workPerformed,
         newPartsInstalled: input.newPartsInstalled || null,
         oldPartsRemoved: input.oldPartsRemoved || null,
         quantityRepaired: input.quantityRepaired ?? null,
@@ -1361,7 +1574,7 @@ export async function completeWorkOrder(
         additionalMaterials: input.additionalMaterials || null,
         additionalIssue: input.additionalIssue || null,
         recommendation: input.recommendation || null,
-        finalCondition: input.finalCondition,
+        finalCondition,
         noPartsUsed: partLines === 0,
         labourMinutes,
         confirmedById: auth.userId,
@@ -1372,7 +1585,7 @@ export async function completeWorkOrder(
         create: { workOrderId: id, ...report },
         update: report,
       })
-      await writeHistory(tx, id, 'COMPLETED', 'REVIEW', auth.userId)
+      await writeHistory(tx, id, 'COMPLETED', finalStatus, auth.userId)
       // Whatever was reserved and not used goes back to the shelf.
       await releaseReservations(tx, id, at)
       // Every failed step gets its own follow-up job.
@@ -1404,9 +1617,9 @@ From ${w.code} · ${w.title}`,
             newValue: {
               code: w.code,
               title: w.title,
-              problemFound: input.problemFound,
+              problemFound,
               rootCause: input.rootCause || null,
-              finalCondition: input.finalCondition,
+              finalCondition,
             },
             note: notes,
           },
@@ -1419,22 +1632,25 @@ From ${w.code} · ${w.title}`,
     await changeAssetStatus(
       auth,
       w.asset.id,
-      { status: input.assetStatus, note: `${w.code}: ${notes}`.slice(0, 500) },
+      { status: input.assetStatus, note: `${w.code}: ${notes ?? workPerformed}`.slice(0, 500) },
       req,
       id,
     )
   }
-  // The named supervisor verifies; without one, anyone who may approve.
-  const verifiers = w.supervisorId
-    ? [w.supervisorId]
-    : await usersWithPermission(auth.organizationId, w.restaurantId, 'work_orders:approve')
+  // To verify: the named supervisor, or anyone who may approve. Without
+  // verification, whoever raised the job hears that it is done.
+  const verifiers = !policy.requireVerification
+    ? [w.createdById]
+    : w.supervisorId
+      ? [w.supervisorId]
+      : await usersWithPermission(auth.organizationId, w.restaurantId, 'work_orders:approve')
   await notify(
     verifiers,
     {
       organizationId: auth.organizationId,
       type: 'TASK_COMPLETED',
       title: `${w.code} · ${w.title}`,
-      body: notes,
+      body: notes ?? workPerformed,
       entityType: 'WORK_ORDER',
       entityId: id,
       actionUrl: woUrl(id, false),
@@ -1464,6 +1680,7 @@ From ${w.code} · ${w.title}`,
       )
     }
   }
+  await createNextRepeat(auth, id, req)
   await runAutomations('WORK_ORDER_COMPLETED', {
     organizationId: auth.organizationId,
     restaurantId: w.restaurantId,
@@ -1901,6 +2118,8 @@ export async function uploadStepAttachment(
     where: { id: itemId, workOrderId: id },
   })
   if (!item) throw new NotFoundError('Checklist step')
+  // Section headings have nothing to answer.
+  if (item.inputType === 'SECTION') throw new ValidationError({ result: ['validation.invalidValue'] })
   if (item.inputType === 'SIGNATURE') {
     // One signature per step: a new one replaces the old.
     await prisma.attachment.deleteMany({ where: { ownerType: 'CHECKLIST_ITEM', ownerId: itemId } })
@@ -1936,6 +2155,8 @@ export async function answerChecklistItem(
     where: { id: itemId, workOrderId: id },
   })
   if (!item) throw new NotFoundError('Checklist step')
+  // Section headings have nothing to answer.
+  if (item.inputType === 'SECTION') throw new ValidationError({ result: ['validation.invalidValue'] })
   const media = await prisma.attachment.count({
     where: { ownerType: 'CHECKLIST_ITEM', ownerId: itemId },
   })

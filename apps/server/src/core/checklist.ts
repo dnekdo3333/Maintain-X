@@ -1,4 +1,5 @@
 import {
+  hiddenSteps,
   stepIsDone,
   type AttachmentDto,
   type AttachmentOwnerType,
@@ -21,6 +22,10 @@ import { prisma } from './prisma.js'
 type Tx = Prisma.TransactionClient
 
 const num = (d: Prisma.Decimal | null) => (d === null ? null : Number(d))
+
+/** Stored condition columns → { step, answer } (or null). */
+export const conditionOf = (r: { showIfPosition: number | null; showIfAnswer: string | null }) =>
+  r.showIfPosition && r.showIfAnswer ? { step: r.showIfPosition, answer: r.showIfAnswer } : null
 
 /** A procedure the user may attach to work in `restaurantId` (global or same restaurant). */
 export async function assertProcedureUsable(
@@ -55,6 +60,8 @@ const stepCopy = (s: Awaited<ReturnType<typeof procedureSteps>>[number]) => ({
   required: s.required,
   options: s.options,
   requirePhoto: s.requirePhoto,
+  showIfPosition: s.showIfPosition,
+  showIfAnswer: s.showIfAnswer,
 })
 
 export async function copyStepsToWorkOrder(tx: Tx, procedureId: string, workOrderId: string) {
@@ -92,6 +99,8 @@ type ItemRow = {
   required: boolean
   options: string[]
   requirePhoto: boolean
+  showIfPosition: number | null
+  showIfAnswer: string | null
   result: ChecklistItemDto['result']
   numericValue: Prisma.Decimal | null
   textValue: string | null
@@ -107,6 +116,7 @@ export function toChecklistDto(i: ItemRow, attachments: AttachmentDto[] = []): C
     attachments,
     options: i.options,
     requirePhoto: i.requirePhoto,
+    showIf: conditionOf(i),
     position: i.position,
     title: i.title,
     instruction: i.instruction,
@@ -147,15 +157,36 @@ export async function stepPhotoCounts(
 export function unanswered(
   items: Array<{
     id?: string
+    position?: number
+    inputType?: ChecklistItemDto['inputType']
     required: boolean
     requirePhoto?: boolean
     result: ChecklistItemDto['result'] | string | null
+    textValue?: string | null
+    showIfPosition?: number | null
+    showIfAnswer?: string | null
   }>,
   photos: Map<string, number> = new Map(),
 ) {
+  // Steps hidden by their condition (and section headings) never block.
+  const hidden = hiddenSteps(
+    items
+      .filter((i) => i.position !== undefined)
+      .map((i) => ({
+        position: i.position!,
+        showIf: conditionOf({
+          showIfPosition: i.showIfPosition ?? null,
+          showIfAnswer: i.showIfAnswer ?? null,
+        }),
+        result: i.result as ChecklistItemDto['result'],
+        textValue: i.textValue ?? null,
+      })),
+  )
   return items.filter(
     (i) =>
+      !(i.position !== undefined && hidden.has(i.position)) &&
       !stepIsDone({
+        inputType: i.inputType,
         required: i.required,
         requirePhoto: i.requirePhoto ?? false,
         result: i.result as ChecklistItemDto['result'],

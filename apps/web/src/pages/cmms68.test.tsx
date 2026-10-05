@@ -54,6 +54,7 @@ const ACTIONS: WorkOrderActions = {
 }
 
 const step = (o: Partial<ChecklistItemDto>): ChecklistItemDto => ({
+  showIf: null,
   id: 's1',
   position: 1,
   title: 'Power off',
@@ -166,6 +167,8 @@ describe('technician task: evidence and checklist', () => {
         needsAfterPhoto: true,
         subWorkOrdersOpen: 0,
         evidence: { BEFORE: 0, DURING: 0, AFTER: 0 },
+        reportRequired: true,
+        verificationRequired: true,
       },
     })
     const answers: Array<Record<string, unknown>> = []
@@ -190,6 +193,8 @@ describe('technician task: evidence and checklist', () => {
               mimeType: 'image/png',
               sizeBytes: 1,
               url: '/files/a1',
+              thumbUrl: null,
+              removed: false,
               uploadedBy: ravi,
               createdAt: new Date().toISOString(),
             },

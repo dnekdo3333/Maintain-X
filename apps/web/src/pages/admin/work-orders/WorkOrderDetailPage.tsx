@@ -16,6 +16,7 @@ import {
   Undo2,
   UserMinus,
   UserPlus,
+  Printer,
   type LucideIcon,
 } from 'lucide-react'
 import { useState } from 'react'
@@ -47,6 +48,9 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useWorkOrder } from '@/services/work-orders.service'
 import { formatDateTime, formatDuration } from '@/utils/format'
 import { enumLabel } from '@/utils/i18n'
+import { LabelList } from '@/components/common/LabelChip'
+import { CustomFieldValues } from '@/components/common/CustomFieldInputs'
+import { reporterName } from '@/utils/people'
 
 export function WorkOrderDetailPage() {
   const { t } = useTranslation()
@@ -197,6 +201,7 @@ function Detail({ w, back }: { w: WorkOrderDetail; back: { to: string; label: st
             )}
             <StatusBadge kind="priority" value={w.priority} />
             <Badge tone="outline">{enumLabel(t, 'workOrderType', w.type)}</Badge>
+            <LabelList labels={w.labels} />
             <Badge tone="outline">{enumLabel(t, 'workOrderCategory', w.category)}</Badge>
           </>
         }
@@ -214,6 +219,11 @@ function Detail({ w, back }: { w: WorkOrderDetail; back: { to: string; label: st
                   <b.icon aria-hidden /> {b.label}
                 </Button>
               ))}
+            <Button variant="ghost" asChild>
+              <Link to={`/work-orders/${w.id}/print`} target="_blank" rel="noreferrer">
+                <Printer aria-hidden /> {t('print.open')}
+              </Link>
+            </Button>
           </>
         }
       />
@@ -314,6 +324,45 @@ function Detail({ w, back }: { w: WorkOrderDetail; back: { to: string; label: st
                   },
                   { label: t('wo.fieldDue'), value: w.dueDate && formatDateTime(w.dueDate) },
                   {
+                    label: t('repeat.label'),
+                    value: w.repeat && (
+                      <span className="grid gap-0.5">
+                        <span>
+                          {t('repeat.summary', {
+                            count: w.repeat.every,
+                            unit: enumLabel(
+                              t,
+                              w.repeat.every === 1 ? 'repeatUnit' : 'repeatUnitPlural',
+                              w.repeat.unit,
+                            ),
+                            basis: enumLabel(t, 'repeatBasis', w.repeat.basis),
+                          })}
+                        </span>
+                        {w.repeatedBy && (
+                          <Link
+                            to={`/work-orders/${w.repeatedBy.id}`}
+                            className="text-13 text-primary hover:underline"
+                          >
+                            {t('repeat.next', { code: w.repeatedBy.code })}
+                          </Link>
+                        )}
+                      </span>
+                    ),
+                    hidden: !w.repeat && !w.repeatedFrom,
+                  },
+                  {
+                    label: t('repeat.from'),
+                    value: w.repeatedFrom && (
+                      <Link
+                        to={`/work-orders/${w.repeatedFrom.id}`}
+                        className="text-primary hover:underline"
+                      >
+                        {w.repeatedFrom.code}
+                      </Link>
+                    ),
+                    hidden: !w.repeatedFrom,
+                  },
+                  {
                     label: t('wo.fieldEstimate'),
                     value: w.estimatedMinutes && formatDuration(w.estimatedMinutes),
                   },
@@ -353,6 +402,9 @@ function Detail({ w, back }: { w: WorkOrderDetail; back: { to: string; label: st
                   },
                 ]}
               />
+              <div className="mt-3">
+                <CustomFieldValues entity="WORK_ORDER" values={w.customFields} />
+              </div>
               {w.completionNotes && (
                 <div className="mt-3 rounded-md bg-muted px-3 py-2">
                   <p className="text-xs font-medium text-muted-foreground">
@@ -436,7 +488,7 @@ function Detail({ w, back }: { w: WorkOrderDetail; back: { to: string; label: st
                 <span className="text-13 text-muted-foreground tabular">
                   {t('checklist.progress', {
                     done: checklistProgress(w.checklist).answered,
-                    total: w.checklist.length,
+                    total: checklistProgress(w.checklist).total,
                   })}
                 </span>
               </PanelHeader>
@@ -472,7 +524,7 @@ function Detail({ w, back }: { w: WorkOrderDetail; back: { to: string; label: st
               </PanelHeader>
               <PanelBody className="grid gap-3">
                 <p className="text-13 text-muted-foreground">
-                  {t('wo.reportedBy', { name: fullName(w.sourceRequest.requestedBy) })}
+                  {t('wo.reportedBy', { name: reporterName(t, w.sourceRequest) })}
                 </p>
                 <p className="text-sm whitespace-pre-wrap">{w.sourceRequest.description}</p>
                 <AttachmentGallery items={w.sourceRequest.attachments} />

@@ -71,7 +71,7 @@ export class ApiError extends Error {
   }
 }
 
-const API_BASE = `${(import.meta.env.VITE_API_URL ?? '').replace(/\/+$/, '')}/api/v1`
+export const API_BASE = `${(import.meta.env.VITE_API_URL ?? '').replace(/\/+$/, '')}/api/v1`
 
 export type QueryValue = string | number | boolean | null | undefined
 

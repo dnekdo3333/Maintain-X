@@ -1,4 +1,8 @@
 import {
+  PROCEDURE_LIBRARY,
+  libraryProcedureInput,
+  procedureSchema,
+  type Locale,
   ERROR_CODES,
   type InspectionTemplateDto,
   type InspectionTemplateInput,
@@ -10,7 +14,7 @@ import type { Prisma } from '@prisma/client'
 import type { Request } from 'express'
 import { recordAudit } from '../../core/audit.js'
 import { canAccessRestaurant, hasPermission, restaurantScope } from '../../core/authz.js'
-import { assertProcedureUsable } from '../../core/checklist.js'
+import { assertProcedureUsable, conditionOf } from '../../core/checklist.js'
 import { ConflictError, NotFoundError, ValidationError } from '../../core/errors.js'
 import { prisma } from '../../core/prisma.js'
 import type { AuthContext } from '../auth/auth.context.js'
@@ -98,6 +102,7 @@ export async function getProcedure(auth: AuthContext, id: string): Promise<Proce
       required: s.required,
       options: s.options,
       requirePhoto: s.requirePhoto,
+      showIf: conditionOf(s),
     })),
     can: {
       edit: manage && hasPermission(auth, 'procedures:edit'),
@@ -115,9 +120,13 @@ const stepRows = (input: ProcedureInput) =>
     unit: s.inputType === 'NUMBER' ? s.unit || null : null,
     minValue: s.inputType === 'NUMBER' ? (s.minValue ?? null) : null,
     maxValue: s.inputType === 'NUMBER' ? (s.maxValue ?? null) : null,
-    required: s.required,
+    // Section headings are never answered.
+    required: s.inputType === 'SECTION' ? false : s.required,
     options: s.inputType === 'MULTIPLE_CHOICE' ? (s.options ?? []) : [],
-    requirePhoto: s.inputType === 'PHOTO' ? false : (s.requirePhoto ?? false),
+    requirePhoto:
+      s.inputType === 'PHOTO' || s.inputType === 'SECTION' ? false : (s.requirePhoto ?? false),
+    showIfPosition: s.showIf?.step ?? null,
+    showIfAnswer: s.showIf?.answer ?? null,
   }))
 
 async function assertNameFree(auth: AuthContext, name: string, exceptId?: string) {
@@ -177,6 +186,33 @@ export async function createProcedure(
     return created
   })
   return getProcedure(auth, p.id)
+}
+
+/**
+ * Copies a ready-made restaurant procedure from the library into the
+ * organisation, in the chosen language. A clashing name gets " (2)", " (3)"…
+ */
+export async function importLibraryProcedure(
+  auth: AuthContext,
+  key: string,
+  input: { locale: Locale; restaurantId: string },
+  req: Request,
+): Promise<ProcedureDetail> {
+  const entry = PROCEDURE_LIBRARY.find((p) => p.key === key)
+  if (!entry) throw new NotFoundError('Library procedure')
+  const base = procedureSchema.parse({
+    ...libraryProcedureInput(entry, input.locale),
+    restaurantId: input.restaurantId,
+  })
+  let name = base.name
+  for (let n = 2; n < 50; n++) {
+    const taken = await prisma.procedure.count({
+      where: { organizationId: auth.organizationId, name: { equals: name, mode: 'insensitive' } },
+    })
+    if (!taken) break
+    name = `${base.name} (${n})`
+  }
+  return createProcedure(auth, { ...base, name }, req)
 }
 
 export async function updateProcedure(

@@ -15,6 +15,9 @@ import {
   Inbox,
   LayoutDashboard,
   Package,
+  HardDrive,
+  MessagesSquare,
+  SlidersHorizontal,
   Zap,
   TrendingUp,
   PackageCheck,
@@ -61,6 +64,12 @@ export function adminNavigation(t: TFunction): NavGroup[] {
           to: '/calendar',
           icon: CalendarDays,
           permission: 'work_orders:view',
+        },
+        {
+          key: 'chat',
+          label: t('nav.chat'),
+          to: '/chat',
+          icon: MessagesSquare,
         },
         {
           key: 'requests',
@@ -203,6 +212,20 @@ export function adminNavigation(t: TFunction): NavGroup[] {
           to: '/users',
           icon: Users,
           permission: 'users:view',
+        },
+        {
+          key: 'settings',
+          label: t('nav.settings'),
+          to: '/settings',
+          icon: SlidersHorizontal,
+          permission: 'settings:view',
+        },
+        {
+          key: 'storage',
+          label: t('nav.storage'),
+          to: '/storage',
+          icon: HardDrive,
+          permission: 'settings:view',
         },
         {
           key: 'roles',

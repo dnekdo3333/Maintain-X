@@ -74,6 +74,7 @@ export function notificationLinkFor(url: string | null, isWorker: boolean): stri
   const wo = url.match(/^\/work-orders\/([0-9a-f-]{36})/)
   if (wo) return `/w/tasks/${wo[1]}`
   if (url.startsWith('/requests')) return '/w/reports'
+  if (url.startsWith('/chat')) return `/w${url}`
   if (url.startsWith('/inspections/')) return url.replace('/inspections/', '/w/inspections/')
   if (url.startsWith('/w/')) return url
   return null
@@ -372,4 +373,41 @@ export interface AnalyticsTrends {
     pmCompliance: number | null
     cost: { parts: number; labour: number; vendor: number; other: number; total: number }
   }
+}
+
+// ---------------------------------------------------------------- storage
+
+/** How long files are kept and when they are made smaller. */
+export const storagePolicySchema = z.object({
+  /** Photos older than this are re-saved at a smaller size. */
+  compactPhotosAfterDays: z.number().int().min(30).max(3650),
+  /** Videos older than this are removed (the job record and photos stay). */
+  keepVideosDays: z.number().int().min(30).max(3650),
+  /** Every file older than this is removed. Records (text) are always kept. */
+  keepFilesYears: z.number().int().min(1).max(20),
+})
+export type StoragePolicy = z.infer<typeof storagePolicySchema>
+
+export const DEFAULT_STORAGE_POLICY: StoragePolicy = {
+  compactPhotosAfterDays: 180,
+  keepVideosDays: 365,
+  keepFilesYears: 5,
+}
+
+export interface StorageUsage {
+  /** Bytes of files in storage, by kind. */
+  files: { photos: number; videos: number; audio: number; documents: number; total: number }
+  counts: { photos: number; videos: number; audio: number; documents: number }
+  /** Size of the database itself. */
+  databaseBytes: number
+  /** Plan limits (Supabase free: 1 GB files, 500 MB database). */
+  fileQuotaBytes: number
+  databaseQuotaBytes: number
+  /** Average bytes added per day over the last 30 days. */
+  dailyGrowthBytes: number
+  /** Days until the file quota is reached at the current pace (null = not growing). */
+  daysUntilFull: number | null
+  policy: StoragePolicy
+  /** Where files are kept: "local" disk or "s3" (Supabase Storage). */
+  driver: string
 }

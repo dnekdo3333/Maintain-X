@@ -27,6 +27,7 @@ const R1: RestaurantDto = {
   status: 'ACTIVE',
   manager: null,
   contactName: null,
+  portalId: 'abcdef0123456789',
   createdAt: new Date().toISOString(),
 }
 

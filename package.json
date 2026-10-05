@@ -24,6 +24,8 @@
     "db:deploy": "npm run db:deploy -w @maintainx/server",
     "db:seed": "npm run db:seed -w @maintainx/server",
     "db:studio": "npm run db:studio -w @maintainx/server",
+    "supabase:setup": "node scripts/supabase-setup.mjs",
+    "push:keys": "node scripts/generate-vapid-keys.mjs",
     "vercel-build": "node scripts/vercel-build.mjs"
   },
   "devDependencies": {

@@ -1,4 +1,5 @@
-import { AUTH_CSRF_HEADER, AUTH_CSRF_VALUE, ERROR_CODES } from '@maintainx/shared'
+import { API_KEY_PREFIX, AUTH_CSRF_HEADER, AUTH_CSRF_VALUE, ERROR_CODES } from '@maintainx/shared'
+import { authenticateApiKey } from '../modules/integrations/api-keys.service.js'
 import type { Request, RequestHandler } from 'express'
 import { ForbiddenError, UnauthenticatedError } from '../core/errors.js'
 import { verifyAccessToken } from '../core/tokens.js'
@@ -13,6 +14,12 @@ import { loadUser } from '../modules/auth/auth.repository.js'
 export const authenticate: RequestHandler = async (req, _res, next) => {
   const header = req.get('authorization')
   if (!header?.startsWith('Bearer ')) throw new UnauthenticatedError()
+  const bearer = header.slice('Bearer '.length).trim()
+  // Integrations use API keys ("mx_live_…") instead of a session.
+  if (bearer.startsWith(API_KEY_PREFIX)) {
+    req.auth = await authenticateApiKey(bearer)
+    return next()
+  }
 
   const claims = await verifyAccessToken(header.slice('Bearer '.length).trim())
   const loaded = await loadUser(claims.sub)

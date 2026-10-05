@@ -3,6 +3,7 @@ import { fullName } from '@maintainx/shared'
 import { Camera, Check, Images } from 'lucide-react'
 import { Link } from 'react-router'
 import { useRef, useState } from 'react'
+import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
 import { StatusBadge } from '@/components/common/StatusBadge'
 import { Badge } from '@/components/ui/badge'
@@ -17,8 +18,9 @@ import { ResultToggle } from '@/components/worker/ResultToggle'
 import { cn } from '@/utils/cn'
 import { reportError } from '@/utils/errors'
 import { formatNumber } from '@/utils/format'
+import { enumLabel } from '@/utils/i18n'
 import { prepareUploads } from '@/utils/image'
-import { rangeLabel } from './checklist-utils'
+import { rangeLabel, visibleSteps } from './checklist-utils'
 import { SignaturePad } from './SignaturePad'
 
 export type AnswerFn = (itemId: string, input: StepAnswerInput) => Promise<unknown>
@@ -44,9 +46,21 @@ export function Checklist({
   /** Where follow-up work orders open (workers can't open admin pages). */
   correctiveLinkBase?: string | null
 }) {
+  // Steps whose condition doesn't hold stay out of the way until it does.
+  const shown = visibleSteps(items)
   return (
     <ol className="grid gap-4">
-      {items.map((item) => (
+      {shown.map((item) =>
+        item.inputType === 'SECTION' ? (
+          <li key={item.id} className="pt-2">
+            <h3 className="border-b pb-1.5 text-sm font-semibold tracking-wide text-muted-foreground uppercase">
+              {item.title}
+            </h3>
+            {item.instruction && (
+              <p className="mt-1 text-13 text-muted-foreground">{item.instruction}</p>
+            )}
+          </li>
+        ) : (
         <li key={item.id}>
           <Step
             item={item}
@@ -56,7 +70,8 @@ export function Checklist({
             correctiveLinkBase={correctiveLinkBase}
           />
         </li>
-      ))}
+        ),
+      )}
     </ol>
   )
 }
@@ -154,6 +169,11 @@ function Step({
         </span>
       </div>
       {item.instruction && <p className="text-13 text-muted-foreground">{item.instruction}</p>}
+      {item.showIf && (
+        <p className="text-xs text-muted-foreground">
+          {t('checklist.shownBecause', { step: item.showIf.step, answer: answerLabel(t, item.showIf.answer) })}
+        </p>
+      )}
 
       {item.inputType === 'PASS_FAIL_NA' &&
         (editable ? (
@@ -412,4 +432,11 @@ function Step({
       )}
     </div>
   )
+}
+
+/** PASS / FAIL / NA in words; choice answers as typed. */
+function answerLabel(t: TFunction, answer: string) {
+  return answer === 'PASS' || answer === 'FAIL' || answer === 'NA'
+    ? enumLabel(t, 'stepResult', answer)
+    : answer
 }

@@ -4,6 +4,7 @@ import {
   partSchema,
   stockAdjustmentSchema,
   stockSettingsSchema,
+  stockTransferSchema,
 } from '@maintainx/shared'
 import { Router } from 'express'
 import { z } from 'zod'
@@ -61,6 +62,18 @@ inventoryRouter.post('/parts/:id/adjust', requirePermission('inventory:edit'), a
     await service.adjustStock(getAuth(req), id, parseBody(stockAdjustmentSchema, req), req),
   )
 })
+
+inventoryRouter.post(
+  '/parts/:id/transfer',
+  requirePermission('inventory:edit'),
+  async (req, res) => {
+    const { id } = parseParams(idParamSchema, req)
+    sendData(
+      res,
+      await service.transferStock(getAuth(req), id, parseBody(stockTransferSchema, req), req),
+    )
+  },
+)
 
 inventoryRouter.put(
   '/parts/:id/stock-settings',

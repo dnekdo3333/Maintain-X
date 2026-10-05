@@ -5,6 +5,8 @@ import {
   REQUEST_STATUS,
   EVIDENCE_STAGE,
   FINAL_CONDITION,
+  REPEAT_BASIS,
+  REPEAT_UNIT,
   WORK_ORDER_CATEGORY,
   WORK_ORDER_COST_TYPE,
   WORK_ORDER_STATUS,
@@ -24,6 +26,7 @@ import type { CostBreakdown } from './assets.js'
 import type { WorkOrderPartDto, WorkOrderReservationDto } from './inventory.js'
 import type { ChecklistItemDto } from './maintenance.js'
 import type { RootCauseDto } from './automation.js'
+import { customValuesSchema, type CustomValue, type LabelDto } from './custom.js'
 import { paginationQuerySchema, sortQuerySchema } from './schemas/common.js'
 
 /*
@@ -74,7 +77,12 @@ export interface AttachmentDto {
   sizeBytes: number
   /** Short-lived signed link (valid ~1 hour). */
   url: string
-  uploadedBy: { id: string; firstName: string; lastName: string }
+  /** Small preview for lists and galleries (photos only). */
+  thumbUrl: string | null
+  /** The file was removed by the retention policy; the record stays. */
+  removed: boolean
+  /** Null for photos a guest sent through the request portal. */
+  uploadedBy: { id: string; firstName: string; lastName: string } | null
   createdAt: string
 }
 
@@ -131,7 +139,9 @@ export interface RequestListItem {
   restaurant: { id: string; name: string }
   location: { id: string; name: string } | null
   asset: { id: string; name: string; assetCode: string } | null
-  requestedBy: PersonRef
+  /** Null when a guest reported it through the public portal (see guest). */
+  requestedBy: PersonRef | null
+  guest: { name: string; phone: string | null } | null
   photoCount: number
   createdAt: string
 }
@@ -148,6 +158,29 @@ export interface RequestDetail extends RequestListItem {
 }
 
 // ---------------------------------------------------------------- work orders
+
+/** "Repeat every 2 weeks, from the due date": the next job is created when this one is done. */
+export const repeatSchema = z.object({
+  every: z.number().int().min(1).max(365),
+  unit: z.enum(REPEAT_UNIT),
+  basis: z.enum(REPEAT_BASIS),
+})
+export type RepeatRule = z.infer<typeof repeatSchema>
+
+/** date + every × unit (months keep the day of month, clamped to the month's end). */
+export function addRepeat(date: Date, rule: Pick<RepeatRule, 'every' | 'unit'>): Date {
+  const d = new Date(date)
+  if (rule.unit === 'DAY') d.setUTCDate(d.getUTCDate() + rule.every)
+  else if (rule.unit === 'WEEK') d.setUTCDate(d.getUTCDate() + rule.every * 7)
+  else {
+    const day = d.getUTCDate()
+    d.setUTCDate(1)
+    d.setUTCMonth(d.getUTCMonth() + rule.every)
+    const last = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate()
+    d.setUTCDate(Math.min(day, last))
+  }
+  return d
+}
 
 const workOrderFields = {
   title: z.string().trim().min(3).max(120),
@@ -166,6 +199,12 @@ const workOrderFields = {
   vendorId: optionalUuid.optional(),
   /** Who verifies the finished work; omitted = unchanged. */
   supervisorId: optionalUuid.optional(),
+  /** Repeat rule, null = does not repeat; omitted = unchanged. */
+  repeat: repeatSchema.nullable().optional(),
+  /** Custom field values by field id; omitted = unchanged. */
+  customFields: customValuesSchema.optional(),
+  /** Labels (custom categories); omitted = unchanged. */
+  labelIds: z.array(z.uuid()).max(10).optional(),
 }
 
 export const createWorkOrderSchema = z.object({
@@ -218,9 +257,10 @@ const optionalCount = z.number().int().min(0).max(10_000).optional()
 export const completeWorkOrderSchema = z.object({
   /** Kept for older clients; filled from workPerformed when absent. */
   notes: z.string().trim().max(5000).optional(),
-  problemFound: reportText(3, 2000),
+  /** Required only when the workflow asks for the full repair report. */
+  problemFound: reportText(3, 2000).optional(),
   rootCause: optionalText(2000).optional(),
-  workPerformed: reportText(3, 5000),
+  workPerformed: reportText(3, 5000).optional(),
   newPartsInstalled: optionalText(1000).optional(),
   oldPartsRemoved: optionalText(1000).optional(),
   quantityRepaired: optionalCount,
@@ -228,12 +268,12 @@ export const completeWorkOrderSchema = z.object({
   additionalMaterials: optionalText(1000).optional(),
   additionalIssue: optionalText(2000).optional(),
   recommendation: optionalText(2000).optional(),
-  finalCondition: z.enum(FINAL_CONDITION),
+  finalCondition: z.enum(FINAL_CONDITION).optional(),
   noPartsUsed: z.boolean().optional(),
-  /** The technician confirms the report is true and the work is done. */
-  confirmed: z.literal(true, { error: 'validation.confirmRequired' }),
+  /** The technician confirms the report is true and the work is done (full report only). */
+  confirmed: z.literal(true, { error: 'validation.confirmRequired' }).optional(),
   /** Optionally set the asset's status (e.g. back to OPERATIONAL). */
-  assetStatus: z.enum(ASSET_STATUS).or(z.literal('')),
+  assetStatus: z.enum(ASSET_STATUS).or(z.literal('')).optional(),
 })
 export type CompleteWorkOrderInput = z.infer<typeof completeWorkOrderSchema>
 
@@ -325,6 +365,7 @@ export const listWorkOrdersQuerySchema = paginationQuerySchema.extend({
   assignedTeamId: z.uuid().optional(),
   vendorId: z.uuid().optional(),
   parentId: z.uuid().optional(),
+  labelId: z.uuid().optional(),
   /** Created on/after, before (YYYY-MM-DD). */
   from: z.iso.date().optional(),
   to: z.iso.date().optional(),
@@ -352,6 +393,7 @@ export interface WorkOrderListItem {
   parentId: string | null
   /** Sub work orders: finished / total (0/0 when none). */
   subProgress: { done: number; total: number }
+  labels: LabelDto[]
   createdAt: string
 }
 
@@ -451,6 +493,10 @@ export interface CompletionCheck {
   subWorkOrdersOpen: number
   /** Photos / videos taken per stage. */
   evidence: Record<EvidenceStage, number>
+  /** The full repair report must be filled in (workflow setting). */
+  reportRequired: boolean
+  /** Finished work goes to a supervisor before it is closed (workflow setting). */
+  verificationRequired: boolean
 }
 
 export interface WorkOrderCostLine {
@@ -476,6 +522,12 @@ export interface AssigneeWorkload {
 
 export interface WorkOrderDetail extends WorkOrderListItem {
   description: string | null
+  /** Custom field values by field id (only filled fields). */
+  customFields: Record<string, Exclude<CustomValue, null>>
+  repeat: RepeatRule | null
+  /** The earlier job this one repeats, and the follow-up created from this one. */
+  repeatedFrom: { id: string; code: string } | null
+  repeatedBy: { id: string; code: string; dueDate: string | null } | null
   estimatedMinutes: number | null
   /** Minutes worked so far (closed time entries + the running one). */
   minutesWorked: number
@@ -528,7 +580,8 @@ export interface WorkOrderDetail extends WorkOrderListItem {
     id: string
     code: string
     description: string
-    requestedBy: PersonRef
+    requestedBy: PersonRef | null
+    guest: { name: string; phone: string | null } | null
     attachments: AttachmentDto[]
   } | null
   attachments: AttachmentDto[]
@@ -629,4 +682,71 @@ const CATEGORY_WORDS: Array<[WorkOrderCategory, RegExp]> = [
 export function guessCategory(text: string): WorkOrderCategory {
   for (const [category, words] of CATEGORY_WORDS) if (words.test(text)) return category
   return 'OTHER'
+}
+
+// ---------------------------------------------------------------- workflow settings
+
+/**
+ * How strict the work order flow is. The defaults follow MaintainX: finish a
+ * job with one tap; photos, the full repair report and supervisor
+ * verification are switches an admin turns on.
+ */
+export const workflowSettingsSchema = z.object({
+  requireBeforePhoto: z.boolean(),
+  requireAfterPhoto: z.boolean(),
+  requireRepairReport: z.boolean(),
+  requireVerification: z.boolean(),
+  /** Show the 4 MaintainX statuses (Open, On hold, In progress, Done) instead of every stage. */
+  simpleStatuses: z.boolean(),
+  /** Extra inventory tools, hidden unless used. */
+  showReservations: z.boolean(),
+  showCycleCounts: z.boolean(),
+  /** Anyone with the restaurant's portal link / QR can report a problem without logging in. */
+  requestPortal: z.boolean(),
+})
+export type WorkflowSettings = z.infer<typeof workflowSettingsSchema>
+
+export const DEFAULT_WORKFLOW: WorkflowSettings = {
+  requireBeforePhoto: false,
+  requireAfterPhoto: false,
+  requireRepairReport: false,
+  requireVerification: false,
+  simpleStatuses: true,
+  showReservations: false,
+  showCycleCounts: false,
+  requestPortal: false,
+}
+
+/** Everything on: before/after photos, full report, verification. */
+export const STRICT_WORKFLOW: WorkflowSettings = {
+  requireBeforePhoto: true,
+  requireAfterPhoto: true,
+  requireRepairReport: true,
+  requireVerification: true,
+  simpleStatuses: false,
+  showReservations: true,
+  showCycleCounts: true,
+  requestPortal: false,
+}
+
+export const SIMPLE_STATUS = ['OPEN', 'ON_HOLD', 'IN_PROGRESS', 'DONE', 'CANCELLED'] as const
+export type SimpleStatus = (typeof SIMPLE_STATUS)[number]
+
+/** The MaintainX-style bucket a detailed status falls into. */
+export function simpleStatusOf(s: WorkOrderStatus): SimpleStatus {
+  switch (s) {
+    case 'IN_PROGRESS':
+      return 'IN_PROGRESS'
+    case 'ON_HOLD':
+      return 'ON_HOLD'
+    case 'COMPLETED':
+    case 'REVIEW':
+    case 'VERIFIED':
+    case 'CLOSED':
+      return 'DONE'
+    case 'CANCELLED':
+      return 'CANCELLED'
+    default:
+      return 'OPEN'
+  }
 }

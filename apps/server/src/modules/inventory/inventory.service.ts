@@ -10,6 +10,7 @@ import {
   type StockLevel,
   type StockMovementMode,
   type StockSettingsInput,
+  type StockTransferInput,
 } from '@maintainx/shared'
 import { Prisma } from '@prisma/client'
 import type { Request } from 'express'
@@ -440,6 +441,68 @@ export async function adjustStock(
     return r
   })
   await notifyLowStock(auth.organizationId, [result], auth.userId)
+  return getPart(auth, partId)
+}
+
+/**
+ * Moves stock from one restaurant's store to another's: one transfer-out and
+ * one transfer-in line in the ledger, in a single transaction.
+ */
+export async function transferStock(
+  auth: AuthContext,
+  partId: string,
+  input: StockTransferInput,
+  req: Request,
+): Promise<PartDetail> {
+  for (const [field, id] of [
+    ['fromRestaurantId', input.fromRestaurantId],
+    ['toRestaurantId', input.toRestaurantId],
+  ] as const)
+    if (!canAccessRestaurant(auth, id))
+      throw new ValidationError({ [field]: ['validation.restaurantOutOfScope'] })
+  const part = await getPart(auth, partId)
+  const results = await prisma.$transaction(async (tx) => {
+    const base = {
+      organizationId: auth.organizationId,
+      partId,
+      type: 'TRANSFER' as const,
+      unitCost: part.unitCost,
+      referenceType: 'MANUAL' as const,
+      actorId: auth.userId,
+      reason: input.reason || null,
+    }
+    const out = await applyStockChange(tx, {
+      ...base,
+      restaurantId: input.fromRestaurantId,
+      delta: -input.quantity,
+    })
+    const into = await applyStockChange(tx, {
+      ...base,
+      restaurantId: input.toRestaurantId,
+      delta: input.quantity,
+    })
+    await recordAudit(
+      {
+        organizationId: auth.organizationId,
+        restaurantId: input.fromRestaurantId,
+        actorId: auth.userId,
+        action: 'inventory.transferred',
+        entityType: 'INVENTORY',
+        entityId: partId,
+        oldValue: { from: out.before, to: into.before },
+        newValue: { from: out.after, to: into.after },
+        metadata: {
+          quantity: input.quantity,
+          toRestaurantId: input.toRestaurantId,
+          reason: input.reason,
+        },
+      },
+      req,
+      tx,
+    )
+    return [out, into]
+  })
+  await notifyLowStock(auth.organizationId, results, auth.userId)
   return getPart(auth, partId)
 }
 

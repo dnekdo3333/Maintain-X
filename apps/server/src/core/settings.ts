@@ -1,3 +1,9 @@
+import {
+  DEFAULT_STORAGE_POLICY,
+  DEFAULT_WORKFLOW,
+  type StoragePolicy,
+  type WorkflowSettings,
+} from '@maintainx/shared'
 import type { Prisma } from '@prisma/client'
 import { prisma } from './prisma.js'
 
@@ -34,19 +40,17 @@ export async function setOrgSetting(
   })
 }
 
-/** What a technician must hand in before a job counts as complete. */
-export interface CompletionPolicy {
-  requireBeforePhoto: boolean
-  requireAfterPhoto: boolean
-}
-
+/**
+ * How strict the work order flow is (photos, full repair report,
+ * verification, simple statuses). Defaults follow MaintainX; see
+ * DEFAULT_WORKFLOW in the shared package.
+ */
 export const COMPLETION_POLICY_KEY = 'workOrders.completion'
 
 export const completionPolicy = (organizationId: string) =>
-  getOrgSetting<CompletionPolicy>(organizationId, COMPLETION_POLICY_KEY, {
-    requireBeforePhoto: true,
-    requireAfterPhoto: true,
-  })
+  getOrgSetting<WorkflowSettings>(organizationId, COMPLETION_POLICY_KEY, { ...DEFAULT_WORKFLOW })
+
+export const workflowSettings = completionPolicy
 
 /** Inventory automation. */
 export interface InventorySettingsValue {
@@ -59,3 +63,9 @@ export const inventorySettings = (organizationId: string) =>
   getOrgSetting<InventorySettingsValue>(organizationId, INVENTORY_SETTINGS_KEY, {
     autoPurchaseRequest: false,
   })
+
+/** File retention: compaction age, video lifetime, years files are kept. */
+export const STORAGE_POLICY_KEY = 'storage.policy'
+
+export const storagePolicy = (organizationId: string) =>
+  getOrgSetting<StoragePolicy>(organizationId, STORAGE_POLICY_KEY, { ...DEFAULT_STORAGE_POLICY })

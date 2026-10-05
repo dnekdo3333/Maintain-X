@@ -1,10 +1,13 @@
 import {
   PRIORITY,
+  REPEAT_BASIS,
+  REPEAT_UNIT,
   WORK_ORDER_CATEGORY,
   WORK_ORDER_TYPE,
   createWorkOrderSchema,
   type CreateWorkOrderInput,
   type Priority,
+  type RepeatUnit,
   type RestaurantDto,
   type UpdateWorkOrderInput,
   type WorkOrderCategory,
@@ -15,6 +18,13 @@ import { useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { z } from 'zod'
 import { MoreOptions } from '@/components/common/MoreOptions'
+import { CustomFieldInputs } from '@/components/common/CustomFieldInputs'
+import {
+  customFieldsFormSchema,
+  fromCustomForm,
+  useCustomFieldDefaults,
+} from '@/components/common/custom-fields'
+import { useCustomFields, useLabels } from '@/services/customization.service'
 import {
   DateField,
   Form,
@@ -60,6 +70,9 @@ const formSchema = createWorkOrderSchema
     procedureId: true,
     asDraft: true,
     type: true,
+    repeat: true,
+    customFields: true,
+    labelIds: true,
   })
   .extend({
     type: z.string(),
@@ -75,6 +88,12 @@ const formSchema = createWorkOrderSchema
     helperIds: z.array(z.string()),
     vendorId: z.string(),
     supervisorId: z.string(),
+    /** NONE or DAY / WEEK / MONTH. */
+    repeatUnit: z.string(),
+    repeatEvery: z.number().int().min(1).max(365).optional(),
+    repeatBasis: z.enum(REPEAT_BASIS),
+    customFields: customFieldsFormSchema,
+    labelIds: z.array(z.string()),
   })
 
 /** Values to start a new work order from (a request, an asset page, a parent job…). */
@@ -165,6 +184,11 @@ function WorkOrderFormInner({
           vendorId: workOrder.vendor?.id ?? NONE,
           supervisorId: workOrder.supervisor?.id ?? NONE,
           procedureId: NONE,
+          repeatUnit: workOrder.repeat?.unit ?? NONE,
+          repeatEvery: workOrder.repeat?.every ?? 1,
+          repeatBasis: workOrder.repeat?.basis ?? 'SCHEDULE',
+          customFields: workOrder.customFields,
+          labelIds: workOrder.labels.map((l) => l.id),
         }
       : {
           title: prefill.title ?? '',
@@ -186,10 +210,19 @@ function WorkOrderFormInner({
           vendorId: NONE,
           supervisorId: NONE,
           procedureId: prefill.procedureId ?? NONE,
+          repeatUnit: NONE,
+          repeatEvery: 1,
+          repeatBasis: 'SCHEDULE',
+          customFields: {},
+          labelIds: [],
         },
   })
+  const customFields = useCustomFields('WORK_ORDER')
+  const labels = useLabels()
+  useCustomFieldDefaults(form, customFields.data)
   const restaurantId = form.watch('restaurantId')
   const assignee = form.watch('assignee')
+  const repeatUnit = form.watch('repeatUnit')
   const locations = useLocations(restaurantId || undefined, !!restaurantId)
   const assets = useAssets({ restaurantId, pageSize: 100, sort: 'name:asc' }, !!restaurantId)
   const users = useUserOptions(
@@ -259,6 +292,16 @@ function WorkOrderFormInner({
       scheduledStart: toIso(v.scheduledStart),
       ...(can('vendors:view') ? { vendorId: orBlank(v.vendorId) } : {}),
       ...(can('work_orders:assign') ? { supervisorId: orBlank(v.supervisorId) } : {}),
+      repeat:
+        v.repeatUnit === NONE
+          ? null
+          : {
+              every: v.repeatEvery ?? 1,
+              unit: v.repeatUnit as RepeatUnit,
+              basis: v.repeatBasis,
+            },
+      ...(customFields.data ? { customFields: fromCustomForm(customFields.data, v.customFields) } : {}),
+      ...(labels.data ? { labelIds: v.labelIds.filter((id) => labels.data.some((l) => l.id === id)) } : {}),
     } satisfies UpdateWorkOrderInput
     try {
       let saved: WorkOrderDetail
@@ -409,6 +452,42 @@ function WorkOrderFormInner({
           />
           <DateField control={form.control} name="dueDate" label={t('wo.fieldDue')} optional />
         </div>
+        <div className="grid gap-4 sm:grid-cols-3">
+          <SelectField
+            control={form.control}
+            name="repeatUnit"
+            label={t('repeat.label')}
+            options={[
+              { value: NONE, label: t('repeat.never') },
+              ...REPEAT_UNIT.map((u) => ({ value: u, label: enumLabel(t, 'repeatUnit', u) })),
+            ]}
+          />
+          {repeatUnit !== NONE && (
+            <>
+              <NumberField
+                control={form.control}
+                name="repeatEvery"
+                label={t('repeat.every')}
+                min={1}
+                max={365}
+                step={1}
+                suffix={enumLabel(t, 'repeatUnitPlural', repeatUnit)}
+              />
+              <SelectField
+                control={form.control}
+                name="repeatBasis"
+                label={t('repeat.basis')}
+                options={REPEAT_BASIS.map((b) => ({
+                  value: b,
+                  label: enumLabel(t, 'repeatBasis', b),
+                }))}
+              />
+            </>
+          )}
+        </div>
+        {repeatUnit !== NONE && (
+          <p className="-mt-2 text-xs text-muted-foreground">{t('repeat.hint')}</p>
+        )}
         {!editing && (procedures.data?.length ?? 0) > 0 && (
           <SelectField
             control={form.control}
@@ -431,6 +510,15 @@ function WorkOrderFormInner({
           optional
           rows={4}
         />
+        {(labels.data?.length ?? 0) > 0 && (
+          <CheckboxListField
+            control={form.control}
+            name="labelIds"
+            label={t('labels.title')}
+            options={(labels.data ?? []).map((l) => ({ value: l.id, label: l.name }))}
+          />
+        )}
+        <CustomFieldInputs entity="WORK_ORDER" control={form.control} fields={customFields.data} />
         <MoreOptions forceOpen={!!errors.estimatedMinutes || editing}>
           <div className="grid gap-4">
             <NumberField

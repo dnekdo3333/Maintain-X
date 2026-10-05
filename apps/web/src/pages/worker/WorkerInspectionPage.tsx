@@ -105,7 +105,7 @@ function Runner({ ins }: { ins: InspectionDetail }) {
             · {ins.restaurant.name}
           </p>
           <span className="text-13 text-muted-foreground tabular">
-            {t('checklist.progress', { done: progress.answered, total: ins.items.length })}
+            {t('checklist.progress', { done: progress.answered, total: progress.total })}
           </span>
         </div>
 

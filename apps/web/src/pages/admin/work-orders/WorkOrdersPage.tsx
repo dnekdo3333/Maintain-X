@@ -16,6 +16,7 @@ import { useNavigate, useSearchParams } from 'react-router'
 import { Can } from '@/components/common/Can'
 import { EmptyState } from '@/components/common/EmptyState'
 import { PageHeader } from '@/components/common/PageHeader'
+import { SavedViews } from '@/components/common/SavedViews'
 import { StatusBadge } from '@/components/common/StatusBadge'
 import { DataTable, FilterSelect, SearchInput } from '@/components/tables'
 import { Badge } from '@/components/ui/badge'
@@ -27,6 +28,8 @@ import { useRestaurantScope } from '@/contexts/RestaurantScopeContext'
 import { useRestaurants } from '@/hooks/useAdminQueries'
 import { useTableState } from '@/hooks/useTableState'
 import { useWorkOrders } from '@/services/work-orders.service'
+import { useLabels } from '@/services/customization.service'
+import { LabelList } from '@/components/common/LabelChip'
 import { cn } from '@/utils/cn'
 import { DUE_TONE_CLASS, describeDue } from '@/utils/format'
 import { enumLabel } from '@/utils/i18n'
@@ -44,6 +47,7 @@ const FILTERS = [
   'assignedTeamId',
   'vendorId',
   'parentId',
+  'labelId',
 ] as const
 const TABLE_CONFIG = {
   sortFields: WORK_ORDER_SORT_FIELDS,
@@ -72,6 +76,7 @@ export function WorkOrdersPage() {
   )
   const restaurants = useRestaurants()
   const query = useWorkOrders(table.apiQuery)
+  const labels = useLabels()
 
   // "/work-orders?new=1&assetId=…" opens the create sheet prefilled (from an asset page).
   const [creating, setCreating] = useState<WorkOrderPrefill | null>(null)
@@ -111,6 +116,7 @@ export function WorkOrdersPage() {
               </span>
             )}
           </p>
+          <LabelList labels={w.labels} className="mt-1" />
         </div>
       ),
     }),
@@ -181,11 +187,14 @@ export function WorkOrdersPage() {
         title={t('wo.title')}
         description={t('wo.subtitle')}
         actions={
-          <Can permission="work_orders:create">
-            <Button onClick={() => setCreating({})}>
-              <Plus aria-hidden /> {t('wo.new')}
-            </Button>
-          </Can>
+          <>
+            <SavedViews resource="work_orders" />
+            <Can permission="work_orders:create">
+              <Button onClick={() => setCreating({})}>
+                <Plus aria-hidden /> {t('wo.new')}
+              </Button>
+            </Can>
+          </>
         }
       />
 
@@ -266,6 +275,14 @@ export function WorkOrdersPage() {
                 label: enumLabel(t, 'workOrderCategory', c),
               }))}
             />
+            {(labels.data?.length ?? 0) > 0 && (
+              <FilterSelect
+                label={t('labels.title')}
+                value={table.state.filters.labelId}
+                onChange={(v) => table.setFilter('labelId', v)}
+                options={(labels.data ?? []).map((l) => ({ value: l.id, label: l.name }))}
+              />
+            )}
           </>
         }
         emptyState={

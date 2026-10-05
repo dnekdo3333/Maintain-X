@@ -186,6 +186,20 @@ export const stockSettingsSchema = z.object({
 })
 export type StockSettingsInput = z.infer<typeof stockSettingsSchema>
 
+/** Move stock from one restaurant's store to another's (two ledger lines, one move). */
+export const stockTransferSchema = z
+  .object({
+    fromRestaurantId: z.uuid(),
+    toRestaurantId: z.uuid(),
+    quantity: qty.positive('validation.positiveQuantity'),
+    reason: optionalText(300),
+  })
+  .refine((v) => v.fromRestaurantId !== v.toRestaurantId, {
+    path: ['toRestaurantId'],
+    message: 'validation.sameRestaurant',
+  })
+export type StockTransferInput = z.infer<typeof stockTransferSchema>
+
 /** low: quantity at or below a minimum greater than zero. */
 export const isLowStock = (quantity: number, minStock: number) =>
   minStock > 0 && quantity <= minStock

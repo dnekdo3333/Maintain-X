@@ -50,6 +50,7 @@ const worker = makeUser({
 })
 
 const step = (o: Partial<ChecklistItemDto>): ChecklistItemDto => ({
+  showIf: null,
   id: 'i1',
   attachments: [],
   options: [],

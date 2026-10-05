@@ -96,6 +96,8 @@ export interface RestaurantDto extends RestaurantRef {
   status: RestaurantStatus
   manager: UserRef | null
   contactName: string | null
+  /** Public request portal link token (/r/<portalId>). */
+  portalId: string
   createdAt: string
 }
 

@@ -229,6 +229,7 @@ export async function answerInspectionItem(
   }
   const item = detail.items.find((i) => i.id === itemId)
   if (!item) throw new NotFoundError('Inspection step')
+  if (item.inputType === 'SECTION') throw new ValidationError({ result: ['validation.invalidValue'] })
   const v = evaluateAnswer(item, input, item.attachments.length > 0)
   await prisma.inspectionItem.update({
     where: { id: itemId },
@@ -359,6 +360,7 @@ export async function uploadInspectionStepAttachment(
   if (!detail.can.answer) throw new ForbiddenError()
   const item = detail.items.find((i) => i.id === itemId)
   if (!item) throw new NotFoundError('Inspection step')
+  if (item.inputType === 'SECTION') throw new ValidationError({ result: ['validation.invalidValue'] })
   if (item.inputType === 'SIGNATURE')
     await prisma.attachment.deleteMany({ where: { ownerType: 'INSPECTION_ITEM', ownerId: itemId } })
   const ids = await saveAttachments(files, { type: 'INSPECTION_ITEM', id: itemId }, auth.userId)

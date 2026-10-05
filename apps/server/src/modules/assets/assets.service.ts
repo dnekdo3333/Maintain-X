@@ -19,6 +19,7 @@ import { NotFoundError, ValidationError } from '../../core/errors.js'
 import { generatePublicId } from '../../core/ids.js'
 import { toPagedResponse, toSkipTake } from '../../core/pagination.js'
 import { prisma } from '../../core/prisma.js'
+import { resolveCustomValues, storedValues } from '../../core/custom-fields.js'
 import type { AuthContext } from '../auth/auth.context.js'
 
 /** An asset in one of these states isn't doing its job: downtime is counted. */
@@ -262,6 +263,7 @@ async function buildDetail(auth: AuthContext, where: Prisma.AssetWhereInput): Pr
 
   return {
     ...toListItem(a),
+    customFields: storedValues(a.customFields),
     purchaseDate: dateOnly(a.purchaseDate),
     purchaseCost: a.purchaseCost?.toString() ?? null,
     vendor: a.vendor,
@@ -306,12 +308,18 @@ export async function createAsset(
 ): Promise<AssetDetail> {
   const data = toData(input)
   await validateRefs(auth, data)
+  const customFields = await resolveCustomValues(
+    auth.organizationId,
+    'ASSET',
+    input.customFields ?? {},
+  )
 
   const id = await prisma.$transaction(async (tx) => {
     const assetCode = await nextCode(tx, auth.organizationId, 'AST', 4)
     const asset = await tx.asset.create({
       data: {
         ...data,
+        customFields,
         organizationId: auth.organizationId,
         assetCode,
         publicId: generatePublicId(),
@@ -361,6 +369,10 @@ export async function updateAsset(
     await assertTransferable(auth, id)
   }
   await validateRefs(auth, data, id)
+  const customFields = await resolveCustomValues(auth.organizationId, 'ASSET', input.customFields)
+  const customChanged =
+    customFields !== undefined &&
+    JSON.stringify(customFields) !== JSON.stringify(storedValues(before.customFields))
 
   const changed: Record<string, { from: string | null; to: string | null }> = {}
   for (const key of Object.keys(data) as Array<keyof AssetData>) {
@@ -368,7 +380,7 @@ export async function updateAsset(
     const to = comparable(data[key])
     if (from !== to) changed[key] = { from, to }
   }
-  if (Object.keys(changed).length === 0) return getAsset(auth, id)
+  if (Object.keys(changed).length === 0 && !customChanged) return getAsset(auth, id)
 
   const transferred = 'restaurantId' in changed
   const moved = transferred || 'locationId' in changed
@@ -377,7 +389,10 @@ export async function updateAsset(
   )
 
   await prisma.$transaction(async (tx) => {
-    await tx.asset.update({ where: { id }, data })
+    await tx.asset.update({
+      where: { id },
+      data: { ...data, ...(customChanged ? { customFields } : {}) },
+    })
     if (transferred) await moveComponents(tx, id, data.restaurantId)
     if (moved) {
       const [restaurant, location] = await Promise.all([

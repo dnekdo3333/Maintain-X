@@ -14,6 +14,7 @@ import { WarrantyBadge } from '@/components/assets/WarrantyBadge'
 import { Can } from '@/components/common/Can'
 import { EmptyState } from '@/components/common/EmptyState'
 import { PageHeader } from '@/components/common/PageHeader'
+import { SavedViews } from '@/components/common/SavedViews'
 import { StatusBadge } from '@/components/common/StatusBadge'
 import { DataTable, FilterSelect, SearchInput } from '@/components/tables'
 import { Button } from '@/components/ui/button'
@@ -128,6 +129,7 @@ export function AssetsPage() {
         description={t('assets.subtitle')}
         actions={
           <>
+            <SavedViews resource="assets" />
             <Button variant="secondary" onClick={() => setManagingCategories(true)}>
               <Tags aria-hidden /> {t('assets.categories')}
             </Button>

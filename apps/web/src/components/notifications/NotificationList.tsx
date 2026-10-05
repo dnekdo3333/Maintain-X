@@ -27,6 +27,8 @@ import {
   Hourglass,
   RotateCcw,
   Gauge,
+  HardDrive,
+  MessagesSquare,
   type LucideIcon,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -63,6 +65,8 @@ const ICONS: Record<NotificationDto['type'], LucideIcon> = {
   DUE_SOON: Hourglass,
   WORK_REOPENED: RotateCcw,
   METER_ALERT: Gauge,
+  STORAGE_ALERT: HardDrive,
+  CHAT_MESSAGE: MessagesSquare,
 }
 
 /** One list for the bell popover, the admin page and the worker tab. */

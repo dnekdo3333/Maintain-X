@@ -7,6 +7,7 @@ import { Link, useNavigate } from 'react-router'
 import { Can } from '@/components/common/Can'
 import { EmptyState } from '@/components/common/EmptyState'
 import { PageHeader } from '@/components/common/PageHeader'
+import { SavedViews } from '@/components/common/SavedViews'
 import {
   InventorySettingsDialog,
   LowStockOrderDialog,
@@ -137,6 +138,7 @@ export function InventoryPage() {
         description={t('inventory.subtitle')}
         actions={
           <>
+            <SavedViews resource="parts" />
             <Can permission="purchase_orders:create">
               <Button variant="secondary" onClick={() => setOrdering(true)}>
                 <ShoppingCart aria-hidden /> {t('lowStock.order')}

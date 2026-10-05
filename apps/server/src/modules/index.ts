@@ -23,6 +23,13 @@ import { requestsRouter } from './requests/requests.routes.js'
 import { restaurantsRouter } from './restaurants/restaurants.routes.js'
 import { rolesRouter } from './roles/roles.routes.js'
 import { stockCountsRouter } from './stock-counts/stock-counts.routes.js'
+import { settingsRouter } from './settings/settings.routes.js'
+import { portalRouter } from './portal/portal.routes.js'
+import { searchRouter } from './search/search.routes.js'
+import { customizationRouter } from './customization/customization.routes.js'
+import { chatRouter } from './chat/chat.routes.js'
+import { integrationsRouter } from './integrations/integrations.routes.js'
+import { storageAdminRouter } from './storage-admin/storage-admin.routes.js'
 import { teamsRouter } from './teams/teams.routes.js'
 import { usersRouter } from './users/users.routes.js'
 import { vendorsRouter } from './vendors/vendors.routes.js'
@@ -48,6 +55,13 @@ apiRouter.use(proceduresRouter)
 apiRouter.use(inspectionsRouter)
 apiRouter.use(inventoryRouter)
 apiRouter.use(stockCountsRouter)
+apiRouter.use(storageAdminRouter)
+apiRouter.use(settingsRouter)
+apiRouter.use(portalRouter)
+apiRouter.use(searchRouter)
+apiRouter.use(customizationRouter)
+apiRouter.use(chatRouter)
+apiRouter.use(integrationsRouter)
 apiRouter.use(vendorsRouter)
 apiRouter.use(purchaseOrdersRouter)
 apiRouter.use(notificationsRouter)

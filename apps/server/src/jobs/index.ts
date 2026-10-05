@@ -3,6 +3,7 @@ import { prisma } from '../core/prisma.js'
 import { runPmGenerator } from '../modules/maintenance/pm-generator.js'
 import { pruneNotifications } from '../modules/notifications/notifications.service.js'
 import { runAlerts } from './alerts.js'
+import { runStorageJobs } from './storage.js'
 import { IDEMPOTENCY_TTL_MS } from '../middleware/idempotency.js'
 
 /*
@@ -33,6 +34,8 @@ export const JOBS: Job[] = [
   { name: 'pm-generator', everyMs: 5 * 60_000, firstAfterMs: 5_000, run: () => runPmGenerator() },
   { name: 'alerts', everyMs: 60 * 60_000, firstAfterMs: 30_000, run: () => runAlerts() },
   { name: 'cleanup', everyMs: 24 * 60 * 60_000, firstAfterMs: 60_000, run: cleanup },
+  // Shrink old photos, remove expired files, warn before the plan is full.
+  { name: 'storage', everyMs: 6 * 60 * 60_000, firstAfterMs: 120_000, run: () => runStorageJobs() },
 ]
 
 export function startBackgroundJobs(jobs: Job[] = JOBS): () => void {
