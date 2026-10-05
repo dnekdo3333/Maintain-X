@@ -40,7 +40,7 @@ import {
   useUserOptions,
 } from '@/hooks/useAdminQueries'
 import { teamsApi } from '@/services/admin.service'
-import { describeError } from '@/utils/errors'
+import { describeError, reportError } from '@/utils/errors'
 
 /** Select fields can't hold null; this sentinel stands for "organization-wide" / "no lead". */
 const NONE = '__none__'
@@ -199,7 +199,7 @@ function TeamForm({ team, onDone }: { team: TeamDto | null; onDone: () => void }
               toast.success(t('teams.archived'))
               onDone()
             } catch (err) {
-              toast.error(describeError(err, t))
+              reportError(err, t)
               throw err
             }
           }}

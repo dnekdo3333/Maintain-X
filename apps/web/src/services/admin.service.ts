@@ -5,6 +5,7 @@ import type {
   PagedResponse,
   RestaurantDto,
   RestaurantInput,
+  RestaurantStats,
   RoleDto,
   RoleInput,
   SetUserStatusInput,
@@ -28,14 +29,20 @@ export interface UserOption {
   role: string | null
 }
 
+/** Narrow a people picker to those who may verify or carry out work. */
+export type UserOptionPermission = 'work_orders:approve' | 'work_orders:complete'
+
 export const usersApi = {
   list: (query: Record<string, QueryValue>, signal?: AbortSignal) =>
     http.get<PagedResponse<UserListItem>>('/users', { query, signal }),
   get: (id: string, signal?: AbortSignal) =>
     unwrap(http.get<ApiResponse<UserDetail>>(`/users/${id}`, { signal })),
-  options: (restaurantId?: string, signal?: AbortSignal) =>
+  options: (restaurantId?: string, signal?: AbortSignal, permission?: UserOptionPermission) =>
     unwrap(
-      http.get<ApiResponse<UserOption[]>>('/users/options', { query: { restaurantId }, signal }),
+      http.get<ApiResponse<UserOption[]>>('/users/options', {
+        query: { restaurantId, permission },
+        signal,
+      }),
     ),
   create: (input: CreateUserInput) => unwrap(http.post<ApiResponse<CreatedUser>>('/users', input)),
   update: (id: string, input: UpdateUserInput) =>
@@ -78,4 +85,7 @@ export const restaurantsApi = {
     unwrap(http.post<ApiResponse<RestaurantDto>>('/restaurants', input)),
   update: (id: string, input: RestaurantInput) =>
     unwrap(http.put<ApiResponse<RestaurantDto>>(`/restaurants/${id}`, input)),
+  stats: (id: string, signal?: AbortSignal) =>
+    unwrap(http.get<ApiResponse<RestaurantStats>>(`/restaurants/${id}/stats`, { signal })),
+  archive: (id: string) => http.delete<void>(`/restaurants/${id}`),
 }

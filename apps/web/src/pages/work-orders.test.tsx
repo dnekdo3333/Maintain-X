@@ -16,6 +16,7 @@ import i18n from '@/i18n'
 import { appRoutes } from '@/routes/app.routes'
 import { setAccessToken } from '@/services/http'
 import { installFakeAuthApi, json, makeUser } from '@/test/fake-auth-api'
+import { NEW_ACTIONS, WO_DEFAULTS } from '@/test/work-order-fixtures'
 
 const R1 = { id: '11111111-1111-4111-8111-111111111111', name: 'Restaurant 1' }
 const ravi = { id: '22222222-2222-4222-8222-222222222222', firstName: 'Ravi', lastName: 'Kumar' }
@@ -49,7 +50,7 @@ const NO_ACTIONS: WorkOrderActions = {
   hold: false,
   resume: false,
   complete: false,
-  close: false,
+  ...NEW_ACTIONS,
   reopen: false,
   unassign: false,
   upload: false,
@@ -94,6 +95,7 @@ function workOrder(o: Partial<WorkOrderDetail> = {}): WorkOrderDetail {
     attachments: [],
     messages: [],
     history: [],
+    ...WO_DEFAULTS,
     actions: NO_ACTIONS,
     ...o,
   }
@@ -148,18 +150,20 @@ describe('admin work order detail', () => {
     let current = workOrder({
       status: 'REVIEW',
       completionNotes: 'Gasket replaced',
-      actions: { ...NO_ACTIONS, close: true, reopen: true },
+      actions: { ...NO_ACTIONS, verify: true, reject: true },
     })
     let closeBody: unknown
     const { container } = renderAt(`/work-orders/${current.id}`, admin, (method, path, body) => {
       if (method === 'GET' && path === `/work-orders/${current.id}`) return json({ data: current })
-      if (method === 'POST' && path === `/work-orders/${current.id}/close`) {
+      if (method === 'POST' && path === `/work-orders/${current.id}/verify`) {
         closeBody = body
         current = {
           ...current,
           status: 'CLOSED',
           closedBy: priya,
           closedAt: new Date().toISOString(),
+          verifiedBy: priya,
+          verifiedAt: new Date().toISOString(),
           actions: { ...NO_ACTIONS, reopen: true, message: false },
         }
         return json({ data: current })
@@ -168,19 +172,19 @@ describe('admin work order detail', () => {
     })
 
     expect(await screen.findByRole('heading', { name: 'Replace door gasket' })).toBeInTheDocument()
-    expect(screen.getByText('Waiting for your review')).toBeInTheDocument()
+    expect(screen.getByText('Waiting for your verification')).toBeInTheDocument()
     expect(screen.getByText('Gasket replaced')).toBeInTheDocument()
     await expectAccessible(container)
 
     const user = userEvent.setup()
-    await user.click(screen.getByRole('button', { name: 'Approve & close' }))
+    await user.click(screen.getByRole('button', { name: 'Approve work' }))
     const dialog = await screen.findByRole('dialog')
     await user.type(within(dialog).getByLabelText(/Note/), 'Checked, cold again')
-    await user.click(within(dialog).getByRole('button', { name: 'Close work order' }))
+    await user.click(within(dialog).getByRole('button', { name: 'Approve work' }))
 
     await waitFor(() => expect(closeBody).toEqual({ note: 'Checked, cold again' }))
-    expect(await screen.findByText('Closed by')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Approve & close' })).not.toBeInTheDocument()
+    expect(await screen.findByText('Verified by')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Approve work' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Reopen' })).toBeInTheDocument()
   })
 })
@@ -205,7 +209,8 @@ describe('requests', () => {
     rejectionReason: null,
     workOrder: null,
     attachments: [],
-    can: { convert: true, reject: true },
+    reviewNote: null,
+    can: { convert: true, reject: true, approve: true },
   }
 
   it('opens a request from the list and rejects it with a reason', async () => {
@@ -223,7 +228,7 @@ describe('requests', () => {
           status: 'REJECTED',
           rejectionReason: String(body.reason),
           reviewedBy: priya,
-          can: { convert: false, reject: false },
+          can: { convert: false, reject: false, approve: false },
         }
         return json({ data: current })
       }
@@ -248,7 +253,8 @@ describe('requests', () => {
 describe('worker task', () => {
   it('starts an assigned task, then offers hold and complete', async () => {
     let current = workOrder({ actions: { ...NO_ACTIONS, start: true, upload: true } })
-    const { container } = renderAt(`/w/tasks/${current.id}`, worker, (method, path) => {
+    let completeBody: Record<string, unknown> | undefined
+    const { container } = renderAt(`/w/tasks/${current.id}`, worker, (method, path, body) => {
       if (method === 'GET' && path === `/work-orders/${current.id}`) return json({ data: current })
       if (method === 'POST' && path === `/work-orders/${current.id}/start`) {
         current = {
@@ -260,6 +266,7 @@ describe('worker task', () => {
         return json({ data: current })
       }
       if (method === 'POST' && path === `/work-orders/${current.id}/complete`) {
+        completeBody = body
         current = { ...current, status: 'REVIEW', timerRunning: false, actions: NO_ACTIONS }
         return json({ data: current })
       }
@@ -277,17 +284,32 @@ describe('worker task', () => {
     expect(screen.getByRole('button', { name: 'Put on hold' })).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Complete' }))
-    const dialog = await screen.findByRole('dialog')
-    await user.click(within(dialog).getByRole('button', { name: 'Complete' }))
-    expect(await within(dialog).findByText(/at least 3 characters/)).toBeInTheDocument()
-    await user.type(within(dialog).getByLabelText(/Completion notes/), 'Replaced the gasket')
-    await user.click(within(dialog).getByRole('button', { name: 'Complete' }))
+    const sheet = await screen.findByRole('dialog', { name: 'Repair report' })
+    const send = within(sheet).getByRole('button', { name: 'Send for verification' })
+    // No parts recorded yet: say so first.
+    expect(send).toBeDisabled()
+    await user.click(within(sheet).getByRole('checkbox', { name: 'No parts used' }))
+    await user.click(send)
+    expect(await within(sheet).findAllByText(/at least 3 characters/)).not.toHaveLength(0)
+    await user.type(within(sheet).getByLabelText(/Problem found/), 'Gasket torn')
+    await user.type(within(sheet).getByLabelText(/Work performed/), 'Replaced the gasket')
+    await user.click(within(sheet).getByRole('combobox', { name: /Final condition/ }))
+    await user.click(await screen.findByRole('option', { name: 'Fully working' }))
+    await user.click(within(sheet).getByRole('checkbox', { name: /I confirm/ }))
+    await user.click(send)
     expect(await screen.findByText('Sent for review')).toBeInTheDocument()
+    expect(completeBody).toMatchObject({
+      problemFound: 'Gasket torn',
+      workPerformed: 'Replaced the gasket',
+      finalCondition: 'FULLY_WORKING',
+      noPartsUsed: true,
+      confirmed: true,
+    })
   })
 })
 
 describe('report a problem', () => {
-  it('sends a report with category, description and urgency', async () => {
+  it('sends a typed problem, description and urgency (category picked from the words)', async () => {
     let sent: Record<string, unknown> | undefined
     const { router, container } = renderAt('/w/report', worker, (method, path, body) => {
       if (path === '/me/restaurants') return json({ data: RESTAURANTS })
@@ -306,9 +328,9 @@ describe('report a problem', () => {
     await expectAccessible(container)
     const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: 'Send report' }))
-    expect(await screen.findAllByText('Please choose an option.')).not.toHaveLength(0)
+    expect(screen.getByLabelText(/What kind of problem/)).toHaveAttribute('aria-invalid', 'true')
 
-    await user.click(screen.getByRole('radio', { name: 'Plumbing' }))
+    await user.type(screen.getByLabelText(/What kind of problem/), 'Sink tap leaking')
     await user.type(screen.getByLabelText(/What’s wrong/), 'Tap leaking under the sink')
     await user.click(screen.getByRole('radio', { name: 'Urgent' }))
     await user.click(screen.getByRole('button', { name: 'Send report' }))
@@ -320,7 +342,7 @@ describe('report a problem', () => {
       description: 'Tap leaking under the sink',
       priority: 'HIGH',
       assetId: '',
-      title: '',
+      title: 'Sink tap leaking',
     })
   })
 })

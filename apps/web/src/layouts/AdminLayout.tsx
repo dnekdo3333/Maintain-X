@@ -1,5 +1,7 @@
 import { Menu } from 'lucide-react'
+import { MobileTabBar } from './MobileTabBar'
 import { useState, type ReactNode } from 'react'
+import { OfflineBanner } from '@/components/common/OfflineBanner'
 import { useTranslation } from 'react-i18next'
 import { NavLink, Outlet, useLocation } from 'react-router'
 import { Button } from '@/components/ui/button'
@@ -114,7 +116,10 @@ export function AdminLayout({
       </aside>
 
       <div className="flex min-h-dvh flex-col lg:pl-64">
-        <header className="glass sticky top-0 z-20 flex h-14 shrink-0 items-center gap-3 border-b px-4 lg:px-6">
+        <header
+          data-m="header"
+          className="glass sticky top-0 z-20 flex h-14 shrink-0 items-center gap-3 border-b px-4 lg:px-6"
+        >
           <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
             <SheetTrigger asChild>
               <Button
@@ -138,13 +143,16 @@ export function AdminLayout({
         <main
           id="main-content"
           tabIndex={-1}
+          data-m="main"
           className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 outline-none lg:px-8"
         >
+          <OfflineBanner />
           <div key={location.pathname} className="animate-rise">
             {children ?? <Outlet />}
           </div>
         </main>
       </div>
+      <MobileTabBar nav={nav} onMenu={() => setMobileOpen(true)} />
     </div>
   )
 }

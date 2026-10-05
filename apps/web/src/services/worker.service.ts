@@ -34,12 +34,19 @@ export function useWorkerHome() {
   })
 }
 
-export function useWorkerTasks(view: WorkerTaskView) {
+/** Optional narrowing for My Work. */
+export interface WorkerTaskFilters {
+  priority?: string
+  restaurantId?: string
+  pm?: '1'
+}
+
+export function useWorkerTasks(view: WorkerTaskView, filters: WorkerTaskFilters = {}) {
   return useInfiniteQuery({
-    queryKey: workerKeys.tasks(view),
+    queryKey: [...workerKeys.tasks(view), filters],
     queryFn: ({ pageParam, signal }) =>
       http.get<PagedResponse<WorkerTask>>('/me/tasks', {
-        query: { view, page: pageParam, pageSize: PAGE_SIZE },
+        query: { view, ...filters, page: pageParam, pageSize: PAGE_SIZE },
         signal,
       }),
     initialPageParam: 1,

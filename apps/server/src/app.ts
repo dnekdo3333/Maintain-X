@@ -7,6 +7,7 @@ import { httpLogger } from './middleware/http-logger.js'
 import { notFoundHandler } from './middleware/not-found.js'
 import { requestId } from './middleware/request-id.js'
 import { apiRateLimiter, corsPolicy, securityHeaders } from './middleware/security.js'
+import { idempotency } from './middleware/idempotency.js'
 import { apiRouter } from './modules/index.js'
 
 export interface CreateAppOptions {
@@ -35,7 +36,7 @@ export function createApp(options: CreateAppOptions = {}): Express {
   app.use(express.urlencoded({ extended: false, limit: '1mb' }))
   app.use(cookieParser())
 
-  app.use('/api/v1', apiRateLimiter, apiRouter)
+  app.use('/api/v1', apiRateLimiter, idempotency, apiRouter)
 
   if (env.isTest && options.testRoutes) {
     const testRouter = Router()

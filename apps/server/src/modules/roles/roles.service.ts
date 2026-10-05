@@ -1,5 +1,6 @@
 import {
   ERROR_CODES,
+  LOCKED_SYSTEM_ROLES,
   SUPER_ADMIN_ONLY_RESOURCES,
   SYSTEM_ROLES,
   WORKER_PERMISSION_FLOOR,
@@ -17,8 +18,8 @@ import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '.
 import { prisma } from '../../core/prisma.js'
 import type { AuthContext } from '../auth/auth.context.js'
 
-/** Super Admin (everything) and Worker (fixed, minimal set) cannot be edited or deleted. */
-const LOCKED_ROLES: ReadonlySet<string> = new Set([SYSTEM_ROLES.SUPER_ADMIN, SYSTEM_ROLES.WORKER])
+/** Super Admin (everything), Worker and Requester (fixed, minimal sets) cannot be edited or deleted. */
+const LOCKED_ROLES: ReadonlySet<string> = new Set(LOCKED_SYSTEM_ROLES)
 
 const roleWithCounts = {
   rolePermissions: { include: { permission: { select: { key: true } } } },

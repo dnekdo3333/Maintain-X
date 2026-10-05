@@ -1,18 +1,30 @@
 import type {
   ApiResponse,
+  ApproveRequestInput,
+  AssigneeWorkload,
+  CalendarItem,
+  CalendarQuery,
+  EvidenceStage,
+  ManualTimeInput,
+  RescheduleWorkOrderInput,
   AssignWorkOrderInput,
-  CloseWorkOrderInput,
+  CancelWorkOrderInput,
   CompleteWorkOrderInput,
   CreateRequestInput,
   CreateWorkOrderInput,
   HoldWorkOrderInput,
   MessageInput,
+  PersonRef,
+  RootCauseInput,
   PagedResponse,
   RejectRequestInput,
+  RejectWorkOrderInput,
   ReopenWorkOrderInput,
   RequestDetail,
   RequestListItem,
   UpdateWorkOrderInput,
+  VerifyWorkOrderInput,
+  WorkOrderCostInput,
   WorkOrderDetail,
   WorkOrderListItem,
 } from '@maintainx/shared'
@@ -21,8 +33,10 @@ import { http, type QueryValue } from './http'
 
 const unwrap = <T>(p: Promise<ApiResponse<T>>) => p.then((r) => r.data)
 
-function filesBody(files: File[]): FormData {
+function filesBody(files: File[], fields: Record<string, string> = {}): FormData {
   const body = new FormData()
+  // Fields first: the server reads them alongside the files.
+  for (const [k, v] of Object.entries(fields)) body.append(k, v)
   for (const f of files) body.append('files', f, f.name)
   return body
 }
@@ -38,6 +52,8 @@ export const requestsApi = {
     unwrap(http.post<ApiResponse<RequestDetail>>(`/requests/${id}/attachments`, filesBody(files))),
   reject: (id: string, input: RejectRequestInput) =>
     unwrap(http.post<ApiResponse<RequestDetail>>(`/requests/${id}/reject`, input)),
+  approve: (id: string, input: ApproveRequestInput) =>
+    unwrap(http.post<ApiResponse<RequestDetail>>(`/requests/${id}/approve`, input)),
 }
 
 const action =
@@ -60,13 +76,56 @@ export const workOrdersApi = {
   hold: action<HoldWorkOrderInput>('hold'),
   resume: action('resume'),
   complete: action<CompleteWorkOrderInput>('complete'),
-  close: action<CloseWorkOrderInput>('close'),
+  publish: action('publish'),
+  verify: action<VerifyWorkOrderInput>('verify'),
+  reject: action<RejectWorkOrderInput>('reject'),
+  cancel: action<CancelWorkOrderInput>('cancel'),
   reopen: action<ReopenWorkOrderInput>('reopen'),
-  message: action<MessageInput>('messages'),
-  upload: (id: string, files: File[]) =>
+  addCost: action<WorkOrderCostInput>('costs'),
+  removeCost: (id: string, costId: string) =>
+    unwrap(http.delete<ApiResponse<WorkOrderDetail>>(`/work-orders/${id}/costs/${costId}`)),
+  workload: (restaurantId: string, signal?: AbortSignal) =>
     unwrap(
-      http.post<ApiResponse<WorkOrderDetail>>(`/work-orders/${id}/attachments`, filesBody(files)),
+      http.get<ApiResponse<AssigneeWorkload[]>>('/work-orders/workload', {
+        query: { restaurantId },
+        signal,
+      }),
     ),
+  message: action<MessageInput>('messages'),
+  messageFiles: (id: string, messageId: string, files: File[]) =>
+    unwrap(
+      http.post<ApiResponse<WorkOrderDetail>>(
+        `/work-orders/${id}/messages/${messageId}/attachments`,
+        filesBody(files),
+      ),
+    ),
+  people: (id: string, signal?: AbortSignal) =>
+    unwrap(http.get<ApiResponse<PersonRef[]>>(`/work-orders/${id}/people`, { signal })),
+  rootCause: (id: string, input: RootCauseInput) =>
+    unwrap(http.put<ApiResponse<WorkOrderDetail>>(`/work-orders/${id}/root-cause`, input)),
+  upload: (id: string, files: File[], meta: { stage?: EvidenceStage; caption?: string } = {}) =>
+    unwrap(
+      http.post<ApiResponse<WorkOrderDetail>>(
+        `/work-orders/${id}/attachments`,
+        filesBody(files, {
+          ...(meta.stage ? { stage: meta.stage } : {}),
+          ...(meta.caption ? { caption: meta.caption } : {}),
+        }),
+      ),
+    ),
+  uploadStep: (id: string, itemId: string, files: File[]) =>
+    unwrap(
+      http.post<ApiResponse<WorkOrderDetail>>(
+        `/work-orders/${id}/checklist/${itemId}/attachments`,
+        filesBody(files),
+      ),
+    ),
+  addTime: action<ManualTimeInput>('time'),
+  removeTime: (id: string, entryId: string) =>
+    unwrap(http.delete<ApiResponse<WorkOrderDetail>>(`/work-orders/${id}/time/${entryId}`)),
+  reschedule: action<RescheduleWorkOrderInput>('schedule'),
+  calendar: (query: CalendarQuery, signal?: AbortSignal) =>
+    unwrap(http.get<ApiResponse<CalendarItem[]>>('/calendar', { query, signal })),
 }
 
 export const workKeys = {
@@ -113,6 +172,25 @@ export function useWorkOrders(query: Record<string, QueryValue>, enabled = true)
     queryFn: ({ signal }) => workOrdersApi.list(query, signal),
     placeholderData: keepPreviousData,
     enabled,
+  })
+}
+
+export function useCalendar(query: CalendarQuery, enabled = true) {
+  return useQuery({
+    queryKey: [...workKeys.workOrders, 'calendar', query],
+    queryFn: ({ signal }) => workOrdersApi.calendar(query, signal),
+    placeholderData: keepPreviousData,
+    enabled,
+  })
+}
+
+/** Who can take a job in this restaurant, least busy first. */
+export function useAssigneeWorkload(restaurantId: string, enabled = true) {
+  return useQuery({
+    queryKey: [...workKeys.workOrders, 'workload', restaurantId],
+    queryFn: ({ signal }) => workOrdersApi.workload(restaurantId, signal),
+    enabled: enabled && !!restaurantId,
+    staleTime: 15_000,
   })
 }
 

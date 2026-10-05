@@ -35,7 +35,12 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { toast } from '@/components/ui/toaster'
-import { adminKeys, useInvalidatingMutation, useRestaurants } from '@/hooks/useAdminQueries'
+import {
+  adminKeys,
+  useInvalidatingMutation,
+  useRestaurants,
+  useUserOptions,
+} from '@/hooks/useAdminQueries'
 import { restaurantsApi } from '@/services/admin.service'
 import { describeError } from '@/utils/errors'
 import { enumLabel } from '@/utils/i18n'
@@ -53,7 +58,12 @@ const EMPTY: RestaurantInput = {
   opensAt: '',
   closesAt: '',
   status: 'ACTIVE',
+  managerId: '',
+  contactName: '',
 }
+
+/** Radix Select can't hold ''. */
+const NO_MANAGER = '__none__'
 
 function toInput(r: RestaurantDto): RestaurantInput {
   return {
@@ -69,6 +79,8 @@ function toInput(r: RestaurantDto): RestaurantInput {
     opensAt: r.opensAt ?? '',
     closesAt: r.closesAt ?? '',
     status: r.status,
+    managerId: r.manager?.id ?? '',
+    contactName: r.contactName ?? '',
   }
 }
 
@@ -80,9 +92,12 @@ export function RestaurantForm({
   onDone: () => void
 }) {
   const { t } = useTranslation()
+  const initial = restaurant ? toInput(restaurant) : EMPTY
   const form = useZodForm(restaurantSchema, {
-    defaultValues: restaurant ? toInput(restaurant) : EMPTY,
+    defaultValues: { ...initial, managerId: initial.managerId || NO_MANAGER },
   })
+  // Managers are people on the admin side; a new restaurant has nobody assigned yet.
+  const managers = useUserOptions(restaurant?.id, true, 'work_orders:approve')
   const save = useInvalidatingMutation(
     (input: RestaurantInput) =>
       restaurant ? restaurantsApi.update(restaurant.id, input) : restaurantsApi.create(input),
@@ -93,7 +108,10 @@ export function RestaurantForm({
 
   const onSubmit = form.handleSubmit(async (values) => {
     try {
-      await save.mutateAsync(values)
+      await save.mutateAsync({
+        ...values,
+        managerId: values.managerId === NO_MANAGER ? '' : values.managerId,
+      })
       toast.success(t('restaurants.saved'))
       onDone()
     } catch (err) {
@@ -182,6 +200,27 @@ export function RestaurantForm({
               value: s,
               label: enumLabel(t, 'restaurantStatus', s),
             }))}
+          />
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <SelectField
+            control={form.control}
+            name="managerId"
+            label={t('restaurants.manager')}
+            description={t('restaurants.managerHint')}
+            options={[
+              { value: NO_MANAGER, label: t('restaurants.noManager') },
+              ...(managers.data ?? []).map((u) => ({
+                value: u.id,
+                label: `${u.firstName} ${u.lastName}${u.role ? ` · ${u.role}` : ''}`,
+              })),
+            ]}
+          />
+          <TextField
+            control={form.control}
+            name="contactName"
+            label={t('restaurants.contactName')}
+            optional
           />
         </div>
         <FormActions>

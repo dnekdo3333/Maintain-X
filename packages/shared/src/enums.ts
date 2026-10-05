@@ -17,6 +17,10 @@ export const RESTAURANT_STATUS = ['ACTIVE', 'INACTIVE'] as const
 export type RestaurantStatus = (typeof RESTAURANT_STATUS)[number]
 
 export const LOCATION_TYPE = [
+  'BUILDING',
+  'FLOOR',
+  'AREA',
+  'ROOM',
   'KITCHEN',
   'HOT_KITCHEN',
   'COLD_KITCHEN',
@@ -33,6 +37,7 @@ export type LocationType = (typeof LOCATION_TYPE)[number]
 
 export const ASSET_STATUS = [
   'OPERATIONAL',
+  'WARNING',
   'UNDER_MAINTENANCE',
   'BROKEN',
   'INACTIVE',
@@ -42,6 +47,7 @@ export type AssetStatus = (typeof ASSET_STATUS)[number]
 
 export const ASSET_EVENT_TYPE = [
   'CREATED',
+  'TRANSFERRED',
   'UPDATED',
   'STATUS_CHANGED',
   'MOVED',
@@ -52,19 +58,34 @@ export const ASSET_EVENT_TYPE = [
 ] as const
 export type AssetEventType = (typeof ASSET_EVENT_TYPE)[number]
 
+export const ASSET_CRITICALITY = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'] as const
+export type AssetCriticality = (typeof ASSET_CRITICALITY)[number]
+
 export const PRIORITY = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'] as const
 export type Priority = (typeof PRIORITY)[number]
 
+/**
+ * REVIEW is shown as "Pending verification". OVERDUE is not a stored status:
+ * it is any active work order whose due date has passed.
+ */
 export const WORK_ORDER_STATUS = [
+  'DRAFT',
   'OPEN',
   'ASSIGNED',
+  'SCHEDULED',
   'IN_PROGRESS',
   'ON_HOLD',
   'COMPLETED',
   'REVIEW',
+  'VERIFIED',
   'CLOSED',
+  'REOPENED',
+  'CANCELLED',
 ] as const
 export type WorkOrderStatus = (typeof WORK_ORDER_STATUS)[number]
+
+export const WORK_ORDER_COST_TYPE = ['VENDOR', 'MATERIAL', 'TRAVEL', 'OTHER'] as const
+export type WorkOrderCostType = (typeof WORK_ORDER_COST_TYPE)[number]
 
 export const WORK_ORDER_TYPE = ['REACTIVE', 'PREVENTIVE', 'INSPECTION_FOLLOWUP'] as const
 export type WorkOrderType = (typeof WORK_ORDER_TYPE)[number]
@@ -85,10 +106,19 @@ export const WORK_ORDER_CATEGORY = [
 ] as const
 export type WorkOrderCategory = (typeof WORK_ORDER_CATEGORY)[number]
 
-export const REQUEST_STATUS = ['NEW', 'CONVERTED', 'REJECTED'] as const
+export const REQUEST_STATUS = ['NEW', 'APPROVED', 'CONVERTED', 'REJECTED'] as const
 export type RequestStatus = (typeof REQUEST_STATUS)[number]
 
-export const STEP_INPUT_TYPE = ['PASS_FAIL_NA', 'NUMBER', 'TEXT'] as const
+/** NUMBER doubles as a measurement (unit + allowed range). */
+export const STEP_INPUT_TYPE = [
+  'PASS_FAIL_NA',
+  'NUMBER',
+  'TEXT',
+  'CHECKBOX',
+  'MULTIPLE_CHOICE',
+  'PHOTO',
+  'SIGNATURE',
+] as const
 export type StepInputType = (typeof STEP_INPUT_TYPE)[number]
 
 export const STEP_RESULT = ['PASS', 'FAIL', 'NA'] as const
@@ -103,10 +133,18 @@ export const ATTACHMENT_OWNER_TYPE = [
 ] as const
 export type AttachmentOwnerType = (typeof ATTACHMENT_OWNER_TYPE)[number]
 
-export const ATTACHMENT_KIND = ['PHOTO', 'VIDEO', 'FILE'] as const
+export const ATTACHMENT_KIND = ['PHOTO', 'VIDEO', 'AUDIO', 'FILE'] as const
 export type AttachmentKind = (typeof ATTACHMENT_KIND)[number]
 
-export const FREQUENCY = ['DAILY', 'WEEKLY', 'MONTHLY', 'QUARTERLY', 'CUSTOM'] as const
+export const FREQUENCY = [
+  'DAILY',
+  'WEEKLY',
+  'MONTHLY',
+  'QUARTERLY',
+  'YEARLY',
+  'CUSTOM',
+  'ONCE',
+] as const
 export type Frequency = (typeof FREQUENCY)[number]
 
 export const INSPECTION_TYPE = ['OPENING', 'CLOSING', 'SAFETY', 'ASSET'] as const
@@ -121,8 +159,17 @@ export const INVENTORY_TXN_TYPE = [
   'ADJUSTMENT',
   'RETURN',
   'TRANSFER',
+  'ISSUE',
+  'DAMAGED',
+  'CYCLE_COUNT',
 ] as const
 export type InventoryTxnType = (typeof INVENTORY_TXN_TYPE)[number]
+
+export const RESERVATION_STATUS = ['ACTIVE', 'FULFILLED', 'RELEASED'] as const
+export type ReservationStatus = (typeof RESERVATION_STATUS)[number]
+
+export const STOCK_COUNT_STATUS = ['IN_PROGRESS', 'COMPLETED', 'CANCELLED'] as const
+export type StockCountStatus = (typeof STOCK_COUNT_STATUS)[number]
 
 export const PURCHASE_ORDER_STATUS = [
   'DRAFT',
@@ -177,6 +224,20 @@ export const NOTIFICATION_TYPE = [
   'INSPECTION_FAILED',
   'NEW_MESSAGE',
   'DOCUMENT_EXPIRY',
+  'REQUEST_APPROVED',
+  'REQUEST_REJECTED',
+  'WORK_REJECTED',
+  'WORK_CANCELLED',
+  'WORK_STARTED',
+  'WORK_RESCHEDULED',
+  'PO_RECEIVED',
+  'CONTRACT_EXPIRY',
+  'AUTOMATION',
+  'MENTION',
+  'WORK_REASSIGNED',
+  'DUE_SOON',
+  'WORK_REOPENED',
+  'METER_ALERT',
 ] as const
 export type NotificationType = (typeof NOTIFICATION_TYPE)[number]
 
@@ -203,5 +264,62 @@ export const AUDIT_ENTITY_TYPE = [
   'SETTING',
   'AUTH',
   'REPORT',
+  'STOCK_COUNT',
+  'VENDOR_CONTRACT',
+  'AUTOMATION',
+  'METER',
 ] as const
 export type AuditEntityType = (typeof AUDIT_ENTITY_TYPE)[number]
+
+/** When a work-order photo / video was taken. */
+export const EVIDENCE_STAGE = ['BEFORE', 'DURING', 'AFTER'] as const
+export type EvidenceStage = (typeof EVIDENCE_STAGE)[number]
+
+/** State the equipment was left in when the job was handed in. */
+export const FINAL_CONDITION = [
+  'FULLY_WORKING',
+  'WORKING_WITH_LIMITATIONS',
+  'NOT_WORKING',
+  'NEEDS_REPLACEMENT',
+] as const
+export type FinalCondition = (typeof FINAL_CONDITION)[number]
+
+export const PART_CONDITION = ['NEW', 'REFURBISHED', 'USED'] as const
+export type PartCondition = (typeof PART_CONDITION)[number]
+
+export const METER_TYPE = [
+  'TEMPERATURE',
+  'RUNTIME_HOURS',
+  'PRESSURE',
+  'CYCLES',
+  'MILEAGE',
+  'ENERGY',
+  'OTHER',
+] as const
+export type MeterType = (typeof METER_TYPE)[number]
+
+export const AUTOMATION_TRIGGER = [
+  'WORK_ORDER_CREATED',
+  'WORK_ORDER_OVERDUE',
+  'WORK_ORDER_COMPLETED',
+  'INSPECTION_FAILED',
+  'METER_READING',
+  'LOW_STOCK',
+  'REQUEST_CREATED',
+] as const
+export type AutomationTrigger = (typeof AUTOMATION_TRIGGER)[number]
+
+export const AUTOMATION_RUN_STATUS = ['SUCCESS', 'SKIPPED', 'FAILED'] as const
+export type AutomationRunStatus = (typeof AUTOMATION_RUN_STATUS)[number]
+
+export const FAILURE_CATEGORY = [
+  'MECHANICAL',
+  'ELECTRICAL',
+  'HUMAN_ERROR',
+  'ENVIRONMENTAL',
+  'WEAR_AND_TEAR',
+  'INSTALLATION',
+  'UNKNOWN',
+  'OTHER',
+] as const
+export type FailureCategory = (typeof FAILURE_CATEGORY)[number]

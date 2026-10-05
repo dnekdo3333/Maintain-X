@@ -1,15 +1,30 @@
-import type { RestaurantDto, RestaurantInput } from '@maintainx/shared'
-import type { Prisma, Restaurant } from '@prisma/client'
+import {
+  ERROR_CODES,
+  WORK_ORDER_ACTIVE_STATUSES,
+  type RestaurantDto,
+  type RestaurantInput,
+  type RestaurantStats,
+} from '@maintainx/shared'
+import type { Prisma } from '@prisma/client'
+import { type Restaurant } from '@prisma/client'
 import type { Request } from 'express'
 import { recordAudit } from '../../core/audit.js'
 import { assertRestaurantAccess, restaurantScope } from '../../core/authz.js'
-import { NotFoundError, ValidationError } from '../../core/errors.js'
+import { costBreakdown } from '../../core/costs.js'
+import { ConflictError, NotFoundError, ValidationError } from '../../core/errors.js'
 import { prisma } from '../../core/prisma.js'
 import type { AuthContext } from '../auth/auth.context.js'
 
 const blank = (v: string) => (v === '' ? null : v)
+const DAY = 86_400_000
 
-export function toRestaurantDto(r: Restaurant): RestaurantDto {
+const withManager = {
+  manager: { select: { id: true, firstName: true, lastName: true } },
+} satisfies Prisma.RestaurantInclude
+
+type Row = Restaurant & { manager?: { id: string; firstName: string; lastName: string } | null }
+
+export function toRestaurantDto(r: Row): RestaurantDto {
   return {
     id: r.id,
     code: r.code,
@@ -24,6 +39,8 @@ export function toRestaurantDto(r: Restaurant): RestaurantDto {
     opensAt: r.opensAt,
     closesAt: r.closesAt,
     status: r.status,
+    manager: r.manager ?? null,
+    contactName: r.contactName,
     createdAt: r.createdAt.toISOString(),
   }
 }
@@ -42,7 +59,24 @@ function toData(input: RestaurantInput) {
     opensAt: blank(input.opensAt),
     closesAt: blank(input.closesAt),
     status: input.status,
+    ...(input.managerId !== undefined ? { managerId: input.managerId || null } : {}),
+    ...(input.contactName !== undefined ? { contactName: blank(input.contactName) } : {}),
   } satisfies Prisma.RestaurantUncheckedUpdateInput
+}
+
+/** The manager must be an active admin-side user (Super Admins always qualify). */
+async function assertManager(organizationId: string, managerId: string | null | undefined) {
+  if (!managerId) return
+  const ok = await prisma.user.count({
+    where: {
+      id: managerId,
+      organizationId,
+      archivedAt: null,
+      status: 'ACTIVE',
+      userRoles: { some: { role: { kind: 'ADMIN' } } },
+    },
+  })
+  if (!ok) throw new ValidationError({ managerId: ['validation.invalidValue'] })
 }
 
 async function assertCodeFree(organizationId: string, code: string, exceptId?: string) {
@@ -73,6 +107,7 @@ export async function listRestaurants(
           }
         : {}),
     },
+    include: withManager,
     orderBy: { name: 'asc' },
   })
   return rows.map(toRestaurantDto)
@@ -82,6 +117,7 @@ export async function getRestaurant(auth: AuthContext, id: string): Promise<Rest
   assertRestaurantAccess(auth, id, 'Restaurant')
   const r = await prisma.restaurant.findFirst({
     where: { id, organizationId: auth.organizationId, archivedAt: null },
+    include: withManager,
   })
   if (!r) throw new NotFoundError('Restaurant')
   return toRestaurantDto(r)
@@ -93,9 +129,11 @@ export async function createRestaurant(
   req: Request,
 ): Promise<RestaurantDto> {
   await assertCodeFree(auth.organizationId, input.code)
+  await assertManager(auth.organizationId, input.managerId)
   const created = await prisma.$transaction(async (tx) => {
     const r = await tx.restaurant.create({
       data: { organizationId: auth.organizationId, ...toData(input) },
+      include: withManager,
     })
     await recordAudit(
       {
@@ -123,8 +161,13 @@ export async function updateRestaurant(
 ): Promise<RestaurantDto> {
   const before = await getRestaurant(auth, id)
   await assertCodeFree(auth.organizationId, input.code, id)
+  await assertManager(auth.organizationId, input.managerId)
   const updated = await prisma.$transaction(async (tx) => {
-    const r = await tx.restaurant.update({ where: { id }, data: toData(input) })
+    const r = await tx.restaurant.update({
+      where: { id },
+      data: toData(input),
+      include: withManager,
+    })
     await recordAudit(
       {
         organizationId: auth.organizationId,
@@ -142,4 +185,137 @@ export async function updateRestaurant(
     return r
   })
   return toRestaurantDto(updated)
+}
+
+/**
+ * Archives a restaurant (Super Admin). Refused while it still has open work;
+ * its history stays for reports, and it disappears from every picker.
+ */
+export async function archiveRestaurant(auth: AuthContext, id: string, req: Request) {
+  const before = await getRestaurant(auth, id)
+  const open = await prisma.workOrder.count({
+    where: { restaurantId: id, archivedAt: null, status: { in: [...WORK_ORDER_ACTIVE_STATUSES] } },
+  })
+  if (open > 0) {
+    throw new ConflictError(
+      'Finish or cancel the open work orders of this restaurant first.',
+      ERROR_CODES.RESTAURANT_HAS_OPEN_WORK,
+      { openWorkOrders: open },
+    )
+  }
+  await prisma.$transaction(async (tx) => {
+    await tx.restaurant.update({
+      where: { id },
+      data: { archivedAt: new Date(), status: 'INACTIVE' },
+    })
+    await recordAudit(
+      {
+        organizationId: auth.organizationId,
+        restaurantId: id,
+        actorId: auth.userId,
+        action: 'restaurant.archived',
+        entityType: 'RESTAURANT',
+        entityId: id,
+        oldValue: { code: before.code, name: before.name, status: before.status },
+      },
+      req,
+      tx,
+    )
+  })
+}
+
+export async function restaurantStats(auth: AuthContext, id: string): Promise<RestaurantStats> {
+  await getRestaurant(auth, id)
+  const since = new Date(Date.now() - 30 * DAY)
+  const live = { restaurantId: id, archivedAt: null }
+  const [
+    locations,
+    assets,
+    assetsDown,
+    users,
+    workers,
+    teams,
+    vendors,
+    parts,
+    lowStock,
+    procedures,
+    openRequests,
+    openWorkOrders,
+    overdueWorkOrders,
+    completed30d,
+    inspections30d,
+    failedInspections30d,
+    cost,
+  ] = await Promise.all([
+    prisma.location.count({ where: live }),
+    prisma.asset.count({ where: live }),
+    prisma.asset.count({ where: { ...live, status: { in: ['BROKEN', 'UNDER_MAINTENANCE'] } } }),
+    prisma.user.count({
+      where: {
+        archivedAt: null,
+        status: 'ACTIVE',
+        userRestaurants: { some: { restaurantId: id } },
+      },
+    }),
+    prisma.user.count({
+      where: {
+        archivedAt: null,
+        status: 'ACTIVE',
+        userRestaurants: { some: { restaurantId: id } },
+        userRoles: { some: { role: { kind: 'WORKER' } } },
+      },
+    }),
+    prisma.team.count({ where: { restaurantId: id, archivedAt: null } }),
+    prisma.vendorRestaurant.count({ where: { restaurantId: id, vendor: { archivedAt: null } } }),
+    prisma.inventory.count({ where: { restaurantId: id, part: { archivedAt: null } } }),
+    prisma.$queryRaw<Array<{ n: bigint }>>`
+      SELECT COUNT(*)::bigint AS n FROM inventory i JOIN parts p ON p.id = i.part_id
+       WHERE i.restaurant_id = ${id}::uuid AND p.archived_at IS NULL
+         AND COALESCE(i.min_stock, p.min_stock) > 0
+         AND i.quantity <= COALESCE(i.min_stock, p.min_stock)`.then((r) => Number(r[0]?.n ?? 0)),
+    prisma.procedure.count({
+      where: { archivedAt: null, OR: [{ restaurantId: id }, { restaurantId: null }] },
+    }),
+    prisma.request.count({ where: { restaurantId: id, status: { in: ['NEW', 'APPROVED'] } } }),
+    prisma.workOrder.count({ where: { ...live, status: { in: [...WORK_ORDER_ACTIVE_STATUSES] } } }),
+    prisma.workOrder.count({
+      where: {
+        ...live,
+        status: { in: [...WORK_ORDER_ACTIVE_STATUSES] },
+        dueDate: { lt: new Date() },
+      },
+    }),
+    prisma.workOrder.count({ where: { ...live, completedAt: { gte: since } } }),
+    prisma.inspection.count({
+      where: { restaurantId: id, status: 'SUBMITTED', submittedAt: { gte: since } },
+    }),
+    prisma.inspection.count({
+      where: {
+        restaurantId: id,
+        status: 'SUBMITTED',
+        submittedAt: { gte: since },
+        items: { some: { result: 'FAIL' } },
+      },
+    }),
+    costBreakdown({ organizationId: auth.organizationId, restaurantIds: [id], from: since }),
+  ])
+  return {
+    locations,
+    assets,
+    assetsDown,
+    users,
+    workers,
+    teams,
+    vendors,
+    parts,
+    lowStock,
+    procedures,
+    openRequests,
+    openWorkOrders,
+    overdueWorkOrders,
+    completed30d,
+    inspections30d,
+    failedInspections30d,
+    cost30d: cost.total,
+  }
 }

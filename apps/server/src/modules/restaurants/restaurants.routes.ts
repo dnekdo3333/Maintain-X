@@ -1,7 +1,7 @@
 import { idParamSchema, listRestaurantsQuerySchema, restaurantSchema } from '@maintainx/shared'
 import { Router } from 'express'
-import { requirePermission } from '../../core/authz.js'
-import { sendCreated, sendData } from '../../core/http.js'
+import { requirePermission, requireSuperAdmin } from '../../core/authz.js'
+import { sendCreated, sendData, sendNoContent } from '../../core/http.js'
 import { parseBody, parseParams, parseQuery } from '../../core/validate.js'
 import { getAuth, requireAuth } from '../../middleware/authenticate.js'
 import * as service from './restaurants.service.js'
@@ -39,5 +39,25 @@ restaurantsRouter.put(
     const { id } = parseParams(idParamSchema, req)
     const input = parseBody(restaurantSchema, req)
     sendData(res, await service.updateRestaurant(getAuth(req), id, input, req))
+  },
+)
+
+restaurantsRouter.get(
+  '/restaurants/:id/stats',
+  requirePermission('restaurants:view'),
+  async (req, res) => {
+    const { id } = parseParams(idParamSchema, req)
+    sendData(res, await service.restaurantStats(getAuth(req), id))
+  },
+)
+
+restaurantsRouter.delete(
+  '/restaurants/:id',
+  requirePermission('restaurants:delete'),
+  requireSuperAdmin(),
+  async (req, res) => {
+    const { id } = parseParams(idParamSchema, req)
+    await service.archiveRestaurant(getAuth(req), id, req)
+    sendNoContent(res)
   },
 )

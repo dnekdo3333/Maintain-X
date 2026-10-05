@@ -2,6 +2,7 @@ import {
   assetCategorySchema,
   assetSchema,
   assetStatusChangeSchema,
+  assetTransferSchema,
   idParamSchema,
   listAssetsQuerySchema,
 } from '@maintainx/shared'
@@ -55,7 +56,7 @@ assetsRouter.get(
   requirePermission('assets:view'),
   async (req, res) => {
     const { publicId } = parseParams(
-      z.object({ publicId: z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{8,24}$/) }),
+      z.object({ publicId: z.string().regex(/^[0-9A-Za-z]{8,40}$/) }),
       req,
     )
     sendData(res, await assets.getAssetByPublicId(getAuth(req), publicId))
@@ -74,6 +75,14 @@ assetsRouter.post('/assets', requirePermission('assets:create'), async (req, res
 assetsRouter.put('/assets/:id', requirePermission('assets:edit'), async (req, res) => {
   const { id } = parseParams(idParamSchema, req)
   sendData(res, await assets.updateAsset(getAuth(req), id, parseBody(assetSchema, req), req))
+})
+
+assetsRouter.post('/assets/:id/transfer', requirePermission('assets:edit'), async (req, res) => {
+  const { id } = parseParams(idParamSchema, req)
+  sendData(
+    res,
+    await assets.transferAsset(getAuth(req), id, parseBody(assetTransferSchema, req), req),
+  )
 })
 
 assetsRouter.put('/assets/:id/status', requirePermission('assets:edit'), async (req, res) => {

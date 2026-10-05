@@ -1,4 +1,5 @@
 import {
+  ASSET_CRITICALITY,
   assetSchema,
   type AssetCategoryDto,
   type AssetDetail,
@@ -25,19 +26,34 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { toast } from '@/components/ui/toaster'
 import { useRestaurantScope } from '@/contexts/RestaurantScopeContext'
 import { useInvalidatingMutation, useRestaurants } from '@/hooks/useAdminQueries'
-import { assetKeys, assetsApi, useAssetCategories, useLocations } from '@/services/assets.service'
+import {
+  assetKeys,
+  assetsApi,
+  useAssetCategories,
+  useAssets,
+  useLocations,
+} from '@/services/assets.service'
 import { useVendorOptions } from '@/services/purchasing.service'
 import { describeError } from '@/utils/errors'
+import { enumLabel } from '@/utils/i18n'
 
 const NO_LOCATION = '__none__'
 const NO_VENDOR = '__none__'
+const NO_PARENT = '__none__'
 
 /**
  * The API schema, except the selects hold sentinel values (Radix Select can't
  * hold ''); they're mapped back to '' on submit.
  */
 const formSchema = z
-  .object({ ...assetSchema.shape, locationId: z.string(), vendorId: z.string() })
+  .object({
+    ...assetSchema.shape,
+    locationId: z.string(),
+    vendorId: z.string(),
+    parentId: z.string(),
+    criticality: z.enum(ASSET_CRITICALITY),
+    installDate: z.string(),
+  })
   .refine((v) => !v.warrantyStart || !v.warrantyEnd || v.warrantyStart <= v.warrantyEnd, {
     message: 'validation.warrantyEndBeforeStart',
     path: ['warrantyEnd'],
@@ -58,6 +74,9 @@ function toInput(a: AssetDetail): AssetInput {
     warrantyEnd: a.warrantyEnd ?? '',
     notes: a.notes ?? '',
     vendorId: a.vendor?.id ?? '',
+    parentId: a.parent?.id ?? '',
+    criticality: a.criticality,
+    installDate: a.installDate ?? '',
   }
 }
 
@@ -106,6 +125,9 @@ function AssetFormInner({
           ...toInput(asset),
           locationId: asset.location?.id ?? NO_LOCATION,
           vendorId: asset.vendor?.id ?? NO_VENDOR,
+          parentId: asset.parent?.id ?? NO_PARENT,
+          criticality: asset.criticality,
+          installDate: asset.installDate ?? '',
         }
       : {
           name: '',
@@ -117,6 +139,9 @@ function AssetFormInner({
             (restaurants.length === 1 ? restaurants[0]!.id : ''),
           locationId: NO_LOCATION,
           vendorId: NO_VENDOR,
+          parentId: NO_PARENT,
+          criticality: 'MEDIUM',
+          installDate: '',
           manufacturer: '',
           model: '',
           serialNumber: '',
@@ -130,6 +155,15 @@ function AssetFormInner({
   const selectedRestaurant = form.watch('restaurantId')
   const vendors = useVendorOptions(selectedRestaurant || undefined)
   const locations = useLocations(selectedRestaurant || undefined, !!selectedRestaurant)
+  const parents = useAssets(
+    { restaurantId: selectedRestaurant, pageSize: 100, sort: 'name:asc' },
+    !!selectedRestaurant,
+  )
+  useEffect(() => {
+    const current = form.getValues('parentId')
+    if (current !== NO_PARENT && parents.data && !parents.data.data.some((a) => a.id === current))
+      form.setValue('parentId', NO_PARENT)
+  }, [parents.data, form])
 
   // A location from another restaurant isn't valid after switching restaurants.
   useEffect(() => {
@@ -165,6 +199,7 @@ function AssetFormInner({
         ...values,
         locationId: values.locationId === NO_LOCATION ? '' : values.locationId,
         vendorId: values.vendorId === NO_VENDOR ? '' : values.vendorId,
+        parentId: values.parentId === NO_PARENT ? '' : values.parentId,
       })
       toast.success(asset ? t('assets.saved') : t('assets.created'))
       onDone(saved)
@@ -184,14 +219,26 @@ function AssetFormInner({
           required
           placeholder="Walk-in freezer"
         />
-        <SelectField
-          control={form.control}
-          name="categoryId"
-          label={t('assets.category')}
-          required
-          placeholder={t('validation.selectOption')}
-          options={categories.map((c) => ({ value: c.id, label: c.name }))}
-        />
+        <div className="grid gap-4 sm:grid-cols-2">
+          <SelectField
+            control={form.control}
+            name="categoryId"
+            label={t('assets.category')}
+            required
+            placeholder={t('validation.selectOption')}
+            options={categories.map((c) => ({ value: c.id, label: c.name }))}
+          />
+          <SelectField
+            control={form.control}
+            name="criticality"
+            label={t('assets.criticality')}
+            description={t('assets.criticalityHint')}
+            options={ASSET_CRITICALITY.map((c) => ({
+              value: c,
+              label: enumLabel(t, 'assetCriticality', c),
+            }))}
+          />
+        </div>
         <div className="grid gap-4 sm:grid-cols-2">
           <SelectField
             control={form.control}
@@ -213,6 +260,19 @@ function AssetFormInner({
           />
         </div>
         <MoreOptions forceOpen={advancedError} defaultOpen={!!asset}>
+          <SelectField
+            control={form.control}
+            name="parentId"
+            label={t('assets.parent')}
+            description={t('assets.parentHint')}
+            disabled={!selectedRestaurant}
+            options={[
+              { value: NO_PARENT, label: t('assets.noParent') },
+              ...(parents.data?.data ?? [])
+                .filter((a) => a.id !== asset?.id)
+                .map((a) => ({ value: a.id, label: `${a.name} · ${a.assetCode}` })),
+            ]}
+          />
           <SelectField
             control={form.control}
             name="vendorId"
@@ -255,6 +315,7 @@ function AssetFormInner({
               label={t('assets.warrantyStart')}
             />
             <DateField control={form.control} name="warrantyEnd" label={t('assets.warrantyEnd')} />
+            <DateField control={form.control} name="installDate" label={t('assets.installDate')} />
           </div>
           <TextareaField control={form.control} name="notes" label={t('assets.notes')} rows={3} />
         </MoreOptions>

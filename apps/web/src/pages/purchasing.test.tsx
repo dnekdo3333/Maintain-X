@@ -17,6 +17,7 @@ import i18n from '@/i18n'
 import { appRoutes } from '@/routes/app.routes'
 import { setAccessToken } from '@/services/http'
 import { installFakeAuthApi, json, makeUser } from '@/test/fake-auth-api'
+import { NEW_ACTIONS, WO_DEFAULTS } from '@/test/work-order-fixtures'
 
 const R1 = { id: '11111111-1111-4111-8111-111111111111', name: 'Restaurant 1' }
 const ravi = { id: '22222222-2222-4222-8222-222222222222', firstName: 'Ravi', lastName: 'Kumar' }
@@ -228,6 +229,7 @@ describe('parts used on a task (worker)', () => {
       attachments: [],
       messages: [],
       history: [],
+      ...WO_DEFAULTS,
       actions: {
         edit: false,
         assign: false,
@@ -235,7 +237,7 @@ describe('parts used on a task (worker)', () => {
         hold: true,
         resume: false,
         complete: true,
-        close: false,
+        ...NEW_ACTIONS,
         reopen: false,
         unassign: false,
         upload: false,
@@ -246,8 +248,11 @@ describe('parts used on a task (worker)', () => {
     }
     const part: PartListItem = {
       id: PART_ID,
+      publicId: 'PARTQR123456',
       name: 'Door gasket',
       partNumber: 'GSK-200',
+      sku: null,
+      reorderQty: null,
       category: null,
       unit: 'pcs',
       unitCost: 450,
@@ -262,6 +267,8 @@ describe('parts used on a task (worker)', () => {
         minOverride: null,
         storageLocation: null,
         low: false,
+        reserved: 0,
+        available: 2,
       },
     }
     let used: unknown
@@ -276,6 +283,7 @@ describe('parts used on a task (worker)', () => {
             {
               id: 'l1',
               part: { id: PART_ID, name: 'Door gasket', partNumber: 'GSK-200', unit: 'pcs' },
+              condition: 'NEW',
               qtyUsed: 1,
               unitCost: 450,
             },
@@ -290,7 +298,7 @@ describe('parts used on a task (worker)', () => {
     await user.click(screen.getByRole('combobox', { name: 'Part' }))
     await user.click(await screen.findByRole('option', { name: /Door gasket · 2 pcs in stock/ }))
     await user.click(screen.getByRole('button', { name: 'Use part' }))
-    await waitFor(() => expect(used).toEqual({ partId: PART_ID, quantity: 1 }))
+    await waitFor(() => expect(used).toEqual({ partId: PART_ID, quantity: 1, condition: 'NEW' }))
     expect(await screen.findByText('Parts cost: ₹450')).toBeInTheDocument()
   })
 })
@@ -299,8 +307,12 @@ describe('stock adjustment', () => {
   it('counts stock at a restaurant', async () => {
     let p: PartDetail = {
       id: PART_ID,
+      publicId: 'PARTQR123456',
       name: 'Door gasket',
       partNumber: 'GSK-200',
+      sku: null,
+      reorderQty: null,
+      reservations: [],
       category: 'Refrigeration',
       unit: 'pcs',
       unitCost: 450,
@@ -319,6 +331,8 @@ describe('stock adjustment', () => {
           minOverride: null,
           storageLocation: null,
           low: false,
+          reserved: 0,
+          available: 5,
         },
       ],
       transactions: [],

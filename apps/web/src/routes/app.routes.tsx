@@ -48,6 +48,19 @@ export const appRoutes: RouteObject[] = [
           Component: (await import('@/pages/assets/AssetQrLandingPage')).AssetQrLandingPage,
         }),
       },
+      // Location and part QR codes (stuck on doors, shelves and bins).
+      {
+        path: '/l/:publicId',
+        lazy: async () => ({
+          Component: (await import('@/pages/assets/QrLandingPages')).LocationQrLandingPage,
+        }),
+      },
+      {
+        path: '/p/:publicId',
+        lazy: async () => ({
+          Component: (await import('@/pages/assets/QrLandingPages')).PartQrLandingPage,
+        }),
+      },
       {
         element: <RequireRoleKind kind="ADMIN" />,
         children: [
@@ -132,6 +145,12 @@ export const appRoutes: RouteObject[] = [
                     }),
                   },
                   {
+                    path: 'calendar',
+                    lazy: async () => ({
+                      Component: (await import('@/pages/admin/calendar/CalendarPage')).CalendarPage,
+                    }),
+                  },
+                  {
                     path: 'work-orders/:workOrderId',
                     lazy: async () => ({
                       Component: (await import('@/pages/admin/work-orders/WorkOrderDetailPage'))
@@ -155,6 +174,30 @@ export const appRoutes: RouteObject[] = [
                     lazy: async () => ({
                       Component: (await import('@/pages/admin/maintenance/PmScheduleDetailPage'))
                         .PmScheduleDetailPage,
+                    }),
+                  },
+                ],
+              },
+              {
+                element: <RequirePermission permission="automations:view" />,
+                children: [
+                  {
+                    path: 'automations',
+                    lazy: async () => ({
+                      Component: (await import('@/pages/admin/automations/AutomationsPage'))
+                        .AutomationsPage,
+                    }),
+                  },
+                ],
+              },
+              {
+                element: <RequirePermission permission="reports:view" />,
+                children: [
+                  {
+                    path: 'analytics',
+                    lazy: async () => ({
+                      Component: (await import('@/pages/admin/reports/AnalyticsPage'))
+                        .AnalyticsPage,
                     }),
                   },
                 ],
@@ -219,6 +262,25 @@ export const appRoutes: RouteObject[] = [
                     lazy: async () => ({
                       Component: (await import('@/pages/admin/inventory/PartDetailPage'))
                         .PartDetailPage,
+                    }),
+                  },
+                ],
+              },
+              {
+                element: <RequirePermission permission="inventory:view" />,
+                children: [
+                  {
+                    path: 'stock-counts',
+                    lazy: async () => ({
+                      Component: (await import('@/pages/admin/inventory/StockCountsPage'))
+                        .StockCountsPage,
+                    }),
+                  },
+                  {
+                    path: 'stock-counts/:countId',
+                    lazy: async () => ({
+                      Component: (await import('@/pages/admin/inventory/StockCountDetailPage'))
+                        .StockCountDetailPage,
                     }),
                   },
                 ],

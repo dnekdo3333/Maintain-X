@@ -1,14 +1,14 @@
 import { UPLOAD_MAX_FILES, fullName, type AttachmentDto } from '@maintainx/shared'
-import { Camera, Film } from 'lucide-react'
+import { Camera, Film, Mic } from 'lucide-react'
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button, type ButtonProps } from '@/components/ui/button'
 import { toast } from '@/components/ui/toaster'
-import { describeError } from '@/utils/errors'
+import { reportError } from '@/utils/errors'
 import { formatDateTime } from '@/utils/format'
 import { prepareUploads } from '@/utils/image'
 
-/** Thumbnails that open the full photo or video in a new tab. */
+/** Thumbnails that open the full photo or video in a new tab; voice notes play inline. */
 export function AttachmentGallery({
   items,
   className,
@@ -18,42 +18,74 @@ export function AttachmentGallery({
 }) {
   const { t } = useTranslation()
   if (items.length === 0) return null
+  const visual = items.filter((a) => a.kind !== 'AUDIO')
+  const voice = items.filter((a) => a.kind === 'AUDIO')
   return (
-    <ul className={className ?? 'grid grid-cols-3 gap-2 sm:grid-cols-4'}>
-      {items.map((a) => {
-        const caption = t('wo.photoBy', {
-          name: fullName(a.uploadedBy),
-          time: formatDateTime(a.createdAt),
-        })
-        return (
-          <li key={a.id}>
-            <a
-              href={a.url}
-              target="_blank"
-              rel="noreferrer"
-              title={caption}
-              aria-label={`${a.fileName} · ${caption}`}
-              className="block aspect-square overflow-hidden rounded-md border bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+    <div className="grid gap-2">
+      {voice.length > 0 && (
+        <ul className="grid gap-2">
+          {voice.map((a) => (
+            <li
+              key={a.id}
+              className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/40 p-2"
             >
-              {a.kind === 'PHOTO' ? (
-                <img
-                  src={a.url}
-                  alt=""
-                  loading="lazy"
-                  className="size-full object-cover"
-                  decoding="async"
-                />
-              ) : (
-                <span className="flex size-full flex-col items-center justify-center gap-1 text-xs text-muted-foreground">
-                  <Film className="size-6" aria-hidden />
-                  {t('wo.video')}
-                </span>
-              )}
-            </a>
-          </li>
-        )
-      })}
-    </ul>
+              <Mic className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+              <span className="text-13 text-muted-foreground">
+                {t('wo.photoBy', {
+                  name: fullName(a.uploadedBy),
+                  time: formatDateTime(a.createdAt),
+                })}
+              </span>
+              <audio
+                controls
+                preload="none"
+                src={a.url}
+                className="h-9 w-full min-w-0 sm:w-auto sm:flex-1"
+              >
+                <track kind="captions" />
+              </audio>
+            </li>
+          ))}
+        </ul>
+      )}
+      {visual.length > 0 && (
+        <ul className={className ?? 'grid grid-cols-3 gap-2 sm:grid-cols-4'}>
+          {visual.map((a) => {
+            const caption = t('wo.photoBy', {
+              name: fullName(a.uploadedBy),
+              time: formatDateTime(a.createdAt),
+            })
+            return (
+              <li key={a.id}>
+                <a
+                  href={a.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  title={caption}
+                  aria-label={`${a.fileName} · ${caption}`}
+                  className="block aspect-square overflow-hidden rounded-md border bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                >
+                  {a.kind === 'PHOTO' ? (
+                    <img
+                      src={a.url}
+                      alt=""
+                      loading="lazy"
+                      className="size-full object-cover"
+                      decoding="async"
+                    />
+                  ) : (
+                    <span className="flex size-full flex-col items-center justify-center gap-1 text-xs text-muted-foreground">
+                      <Film className="size-6" aria-hidden />
+                      {t('wo.video')}
+                    </span>
+                  )}
+                </a>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </div>
   )
 }
 
@@ -84,7 +116,7 @@ export function PhotoUploadButton({
       toast.success(t('wo.photosAdded'))
       onUploaded?.()
     } catch (err) {
-      toast.error(describeError(err, t))
+      reportError(err, t)
     } finally {
       setBusy(false)
       if (input.current) input.current.value = ''

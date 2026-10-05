@@ -13,6 +13,7 @@ import {
   PURCHASE_ORDER_TRANSITIONS,
   WORK_ORDER_TRANSITIONS,
   canTransitionWorkOrder,
+  isWorkOrderOverdue,
 } from './transitions.js'
 import { PURCHASE_ORDER_STATUS, WORK_ORDER_STATUS } from './enums.js'
 
@@ -68,13 +69,30 @@ describe('transitions', () => {
     expect(canTransitionWorkOrder('ON_HOLD', 'IN_PROGRESS')).toBe(true)
     expect(canTransitionWorkOrder('IN_PROGRESS', 'COMPLETED')).toBe(true)
     expect(canTransitionWorkOrder('COMPLETED', 'REVIEW')).toBe(true)
-    expect(canTransitionWorkOrder('REVIEW', 'CLOSED')).toBe(true)
+    // Verification is mandatory: REVIEW → VERIFIED → CLOSED, never REVIEW → CLOSED.
+    expect(canTransitionWorkOrder('REVIEW', 'VERIFIED')).toBe(true)
+    expect(canTransitionWorkOrder('VERIFIED', 'CLOSED')).toBe(true)
+    expect(canTransitionWorkOrder('REVIEW', 'CLOSED')).toBe(false)
+    expect(canTransitionWorkOrder('DRAFT', 'OPEN')).toBe(true)
+    expect(canTransitionWorkOrder('SCHEDULED', 'IN_PROGRESS')).toBe(true)
   })
 
-  it('reopen goes back to ASSIGNED and nothing skips ahead', () => {
-    expect(canTransitionWorkOrder('CLOSED', 'ASSIGNED')).toBe(true)
+  it('rejection and reopening go to REOPENED; cancelled is final; nothing skips ahead', () => {
+    expect(canTransitionWorkOrder('REVIEW', 'REOPENED')).toBe(true)
+    expect(canTransitionWorkOrder('CLOSED', 'REOPENED')).toBe(true)
+    expect(canTransitionWorkOrder('REOPENED', 'IN_PROGRESS')).toBe(true)
+    expect(WORK_ORDER_TRANSITIONS.CANCELLED).toEqual([])
+    expect(canTransitionWorkOrder('IN_PROGRESS', 'CANCELLED')).toBe(true)
+    expect(canTransitionWorkOrder('REVIEW', 'CANCELLED')).toBe(false)
     expect(canTransitionWorkOrder('OPEN', 'COMPLETED')).toBe(false)
     expect(canTransitionWorkOrder('OPEN', 'CLOSED')).toBe(false)
     expect(canTransitionWorkOrder('IN_PROGRESS', 'CLOSED')).toBe(false)
+  })
+
+  it('overdue is derived from active status and due date', () => {
+    const past = new Date(Date.now() - 60_000).toISOString()
+    expect(isWorkOrderOverdue({ status: 'ASSIGNED', dueDate: past })).toBe(true)
+    expect(isWorkOrderOverdue({ status: 'REVIEW', dueDate: past })).toBe(false)
+    expect(isWorkOrderOverdue({ status: 'OPEN', dueDate: null })).toBe(false)
   })
 })

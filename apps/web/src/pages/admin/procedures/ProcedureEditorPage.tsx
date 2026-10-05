@@ -35,8 +35,9 @@ import { toast } from '@/components/ui/toaster'
 import { useCurrentUser } from '@/contexts/AuthContext'
 import { useInvalidatingMutation, useRestaurants } from '@/hooks/useAdminQueries'
 import { mxKeys, proceduresApi, useProcedure } from '@/services/maintenance.service'
-import { describeError } from '@/utils/errors'
-import { enumLabel } from '@/utils/i18n'
+import { describeError, reportError } from '@/utils/errors'
+import { enumLabel, translateValidationMessage } from '@/utils/i18n'
+import { Input } from '@/components/ui/input'
 
 const ALL = '__all__'
 const NO_CATEGORY = '__none__'
@@ -56,6 +57,8 @@ const blankStep = (): Values['steps'][number] => ({
   minValue: undefined,
   maxValue: undefined,
   required: true,
+  options: [],
+  requirePhoto: false,
 })
 
 export function ProcedureEditorPage() {
@@ -116,6 +119,8 @@ function ProcedureView({ p, back }: { p: ProcedureDetail; back: { to: string; la
               <p className="text-13 text-muted-foreground">
                 {enumLabel(t, 'stepInputType', s.inputType)}
                 {s.inputType === 'NUMBER' && rangeLabel(s, t) && ` · ${rangeLabel(s, t)}`}
+                {s.inputType === 'MULTIPLE_CHOICE' && ` · ${s.options.join(' / ')}`}
+                {s.requirePhoto && ` · ${t('checklist.photoRequired')}`}
               </p>
               {s.instruction && <p className="text-13">{s.instruction}</p>}
             </li>
@@ -155,6 +160,8 @@ function Editor({
             minValue: s.minValue ?? undefined,
             maxValue: s.maxValue ?? undefined,
             required: s.required,
+            options: s.options,
+            requirePhoto: s.requirePhoto,
           })),
         }
       : {
@@ -342,17 +349,35 @@ function Editor({
                         {t('procedures.rangeHint')}
                       </p>
                     )}
+                    {types[i] === 'MULTIPLE_CHOICE' && (
+                      <OptionsEditor
+                        value={form.watch(`steps.${i}.options`) ?? []}
+                        onChange={(next) =>
+                          form.setValue(`steps.${i}.options`, next, { shouldValidate: true })
+                        }
+                        error={errors.steps?.[i]?.options?.message}
+                      />
+                    )}
                     <TextField
                       control={form.control}
                       name={`steps.${i}.instruction`}
                       label={t('procedures.instruction')}
                       optional
                     />
-                    <SwitchField
-                      control={form.control}
-                      name={`steps.${i}.required`}
-                      label={t('procedures.required')}
-                    />
+                    <div className="flex flex-wrap gap-x-6 gap-y-2">
+                      <SwitchField
+                        control={form.control}
+                        name={`steps.${i}.required`}
+                        label={t('procedures.required')}
+                      />
+                      {types[i] !== 'PHOTO' && types[i] !== 'SIGNATURE' && (
+                        <SwitchField
+                          control={form.control}
+                          name={`steps.${i}.requirePhoto`}
+                          label={t('procedures.requirePhoto')}
+                        />
+                      )}
+                    </div>
                   </PanelBody>
                 </Panel>
               </li>
@@ -395,12 +420,80 @@ function Editor({
               toast.success(t('procedures.archived'))
               navigate('/procedures', { replace: true })
             } catch (err) {
-              toast.error(describeError(err, t))
+              reportError(err, t)
               throw err
             }
           }}
         />
       )}
     </>
+  )
+}
+
+/** Answers for a multiple-choice step, added one at a time (2–10). */
+function OptionsEditor({
+  value,
+  onChange,
+  error,
+}: {
+  value: string[]
+  onChange: (next: string[]) => void
+  error?: string
+}) {
+  const { t } = useTranslation()
+  const [draft, setDraft] = useState('')
+  const add = () => {
+    const v = draft.trim()
+    if (!v || value.some((o) => o.toLowerCase() === v.toLowerCase()) || value.length >= 10) return
+    onChange([...value, v])
+    setDraft('')
+  }
+  return (
+    <div className="grid gap-2">
+      <p className="text-sm font-medium">{t('procedures.options')}</p>
+      {value.length > 0 && (
+        <ul className="flex flex-wrap gap-2">
+          {value.map((o) => (
+            <li
+              key={o}
+              className="flex items-center gap-1 rounded-full border bg-muted/50 py-1 pr-1 pl-3 text-sm"
+            >
+              {o}
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label={t('procedures.removeOption', { option: o })}
+                onClick={() => onChange(value.filter((x) => x !== o))}
+              >
+                <Trash2 />
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="flex gap-2">
+        <Input
+          value={draft}
+          maxLength={80}
+          aria-label={t('procedures.newOption')}
+          placeholder={t('procedures.optionPlaceholder')}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              add()
+            }
+          }}
+        />
+        <Button variant="secondary" onClick={add} disabled={!draft.trim()}>
+          <Plus aria-hidden /> {t('procedures.addOption')}
+        </Button>
+      </div>
+      {error && (
+        <p className="text-13 text-danger-fg" role="alert">
+          {translateValidationMessage(t, error)}
+        </p>
+      )}
+    </div>
   )
 }

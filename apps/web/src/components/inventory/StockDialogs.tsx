@@ -1,4 +1,6 @@
 import {
+  STOCK_MOVEMENT_MODES,
+  fullName,
   stockAdjustmentSchema,
   stockSettingsSchema,
   type PartDetail,
@@ -25,7 +27,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { toast } from '@/components/ui/toaster'
-import { useInvalidatingMutation } from '@/hooks/useAdminQueries'
+import { useInvalidatingMutation, useUserOptions } from '@/hooks/useAdminQueries'
 import { buyKeys, partsApi } from '@/services/purchasing.service'
 import { describeError } from '@/utils/errors'
 import { formatNumber } from '@/utils/format'
@@ -36,7 +38,7 @@ interface Base {
   onOpenChange: (o: boolean) => void
 }
 
-/** Receive / remove / count stock at one restaurant. */
+/** Stock in / issue / return / damaged / correct / count at one restaurant. */
 export function AdjustStockDialog({
   part,
   open,
@@ -51,12 +53,14 @@ export function AdjustStockDialog({
       mode: 'RECEIVE',
       quantity: undefined as unknown as number,
       unitCost: part.unitCost,
+      issuedToId: '',
       reason: '',
     },
   })
   const mode = form.watch('mode')
   const rid = form.watch('restaurantId')
   const current = part.stockLevels.find((l) => l.restaurant.id === rid)?.quantity ?? 0
+  const people = useUserOptions(rid || undefined, mode === 'ISSUE' && !!rid)
   const save = useInvalidatingMutation(
     (v: Parameters<typeof partsApi.adjust>[1]) => partsApi.adjust(part.id, v),
     [buyKeys.parts, ['dashboard']],
@@ -64,7 +68,11 @@ export function AdjustStockDialog({
   const { errors, isSubmitting } = form.formState
   const onSubmit = form.handleSubmit(async (v) => {
     try {
-      await save.mutateAsync({ ...v, unitCost: v.mode === 'RECEIVE' ? v.unitCost : undefined })
+      await save.mutateAsync({
+        ...v,
+        unitCost: v.mode === 'RECEIVE' ? v.unitCost : undefined,
+        issuedToId: v.mode === 'ISSUE' ? v.issuedToId : undefined,
+      })
       toast.success(t('stock.adjusted'))
       onOpenChange(false)
       form.reset({ ...v, quantity: undefined as unknown as number, reason: '' })
@@ -96,11 +104,21 @@ export function AdjustStockDialog({
               control={form.control}
               name="mode"
               label={t('stock.mode')}
-              options={(['RECEIVE', 'REMOVE', 'COUNT'] as const).map((m) => ({
+              options={STOCK_MOVEMENT_MODES.map((m) => ({
                 value: m,
                 label: t(`stock.mode_${m}`),
               }))}
             />
+            {mode === 'ISSUE' && (
+              <SelectField
+                control={form.control}
+                name="issuedToId"
+                label={t('stock.issuedTo')}
+                required
+                placeholder={t('validation.selectOption')}
+                options={(people.data ?? []).map((u) => ({ value: u.id, label: fullName(u) }))}
+              />
+            )}
             <div className="grid gap-4 sm:grid-cols-2">
               <NumberField
                 control={form.control}

@@ -25,7 +25,10 @@ function task(overrides: Partial<WorkerTask>): WorkerTask {
     title: 'Clean ice machine',
     priority: 'MEDIUM',
     status: 'ASSIGNED',
+    type: 'REACTIVE',
     dueDate: new Date(Date.now() - 3_600_000).toISOString(),
+    scheduledStart: null,
+    overdue: true,
     completedAt: null,
     restaurant: { id: 'r1', name: 'Restaurant 1' },
     location: { id: 'l1', name: 'Bar' },
@@ -36,7 +39,15 @@ function task(overrides: Partial<WorkerTask>): WorkerTask {
 }
 
 const HOME: WorkerHome = {
-  counts: { today: 2, overdue: 1, inProgress: 1, doneThisWeek: 5 },
+  counts: {
+    today: 2,
+    overdue: 1,
+    inProgress: 1,
+    doneThisWeek: 5,
+    highPriority: 1,
+    preventive: 0,
+    checklistsDue: 2,
+  },
   next: [
     task({ id: 'a', title: 'Fix freezer door', status: 'IN_PROGRESS', priority: 'CRITICAL' }),
     task({ id: 'b', title: 'Clean ice machine', team: { id: 'tm', name: 'Kitchen crew' } }),
@@ -128,7 +139,18 @@ describe('worker app', () => {
 
   it('home: friendly empty state', async () => {
     renderAt('/w', {
-      home: { counts: { today: 0, overdue: 0, inProgress: 0, doneThisWeek: 0 }, next: [] },
+      home: {
+        counts: {
+          today: 0,
+          overdue: 0,
+          inProgress: 0,
+          doneThisWeek: 0,
+          highPriority: 0,
+          preventive: 0,
+          checklistsDue: 0,
+        },
+        next: [],
+      },
     })
     expect(await screen.findByText('You’re all caught up.')).toBeInTheDocument()
     expect(screen.getByText('No pending tasks for today.')).toBeInTheDocument()

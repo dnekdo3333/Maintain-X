@@ -1,6 +1,7 @@
 import {
   idParamSchema,
   listPurchaseOrdersQuerySchema,
+  lowStockOrderSchema,
   purchaseOrderSchema,
   reasonSchema,
   receivePoSchema,
@@ -23,6 +24,18 @@ purchaseOrdersRouter.get('/purchase-orders', view, async (req, res) => {
     await service.listPurchaseOrders(getAuth(req), parseQuery(listPurchaseOrdersQuerySchema, req)),
   )
 })
+
+/** Draft purchase requests for everything low at one restaurant (one per preferred vendor). */
+purchaseOrdersRouter.post(
+  '/purchase-orders/from-low-stock',
+  requirePermission('purchase_orders:create'),
+  async (req, res) => {
+    sendCreated(
+      res,
+      await service.orderLowStock(getAuth(req), parseBody(lowStockOrderSchema, req), req),
+    )
+  },
+)
 
 purchaseOrdersRouter.get('/purchase-orders/:id', view, async (req, res) => {
   const { id } = parseParams(idParamSchema, req)

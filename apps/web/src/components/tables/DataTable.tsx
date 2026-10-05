@@ -232,10 +232,15 @@ export function DataTable<T>({
   }
 
   return (
-    <div className="overflow-hidden rounded-lg border bg-card">
+    <div data-m="table" className="overflow-hidden rounded-lg border bg-card">
       {(toolbar || toolbarActions || table.getAllLeafColumns().some((c) => c.getCanHide())) && (
-        <div className="flex flex-col gap-2 border-b p-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex flex-1 flex-wrap items-center gap-2">{toolbar}</div>
+        <div
+          data-m="table-toolbar"
+          className="flex flex-col gap-2 border-b p-3 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <div data-m="table-filters" className="flex flex-1 flex-wrap items-center gap-2">
+            {toolbar}
+          </div>
           <div className="flex items-center gap-2">
             {toolbarActions}
             <DataTableViewOptions table={table} />
@@ -329,11 +334,18 @@ export function DataTable<T>({
                     'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring',
                 )}
               >
-                {row.getVisibleCells().map((cell) => {
+                {row.getVisibleCells().map((cell, index) => {
                   const meta = cell.column.columnDef.meta
+                  const heading = cell.column.columnDef.header
                   return (
                     <TableCell
                       key={cell.id}
+                      // Phone card layout (mobile.css): first cell is the title, the
+                      // others show their column name as a label.
+                      data-m-title={index === 0 ? '' : undefined}
+                      data-label={typeof heading === 'string' ? heading : undefined}
+                      data-hide-below={meta?.hideBelow}
+                      data-col={cell.column.id}
                       className={cn(
                         meta?.align && ALIGN[meta.align],
                         meta?.hideBelow && HIDE_BELOW[meta.hideBelow],

@@ -1,4 +1,10 @@
-import type { ChecklistItemDto, Priority } from '@maintainx/shared'
+import {
+  stepIsDone,
+  type AttachmentDto,
+  type AttachmentOwnerType,
+  type ChecklistItemDto,
+  type Priority,
+} from '@maintainx/shared'
 import type { Prisma } from '@prisma/client'
 import type { AuthContext } from '../modules/auth/auth.context.js'
 import { canAccessRestaurant } from './authz.js'
@@ -47,6 +53,8 @@ const stepCopy = (s: Awaited<ReturnType<typeof procedureSteps>>[number]) => ({
   minValue: s.minValue,
   maxValue: s.maxValue,
   required: s.required,
+  options: s.options,
+  requirePhoto: s.requirePhoto,
 })
 
 export async function copyStepsToWorkOrder(tx: Tx, procedureId: string, workOrderId: string) {
@@ -82,6 +90,8 @@ type ItemRow = {
   minValue: Prisma.Decimal | null
   maxValue: Prisma.Decimal | null
   required: boolean
+  options: string[]
+  requirePhoto: boolean
   result: ChecklistItemDto['result']
   numericValue: Prisma.Decimal | null
   textValue: string | null
@@ -91,9 +101,12 @@ type ItemRow = {
   correctiveWorkOrder: { id: string; code: string } | null
 }
 
-export function toChecklistDto(i: ItemRow): ChecklistItemDto {
+export function toChecklistDto(i: ItemRow, attachments: AttachmentDto[] = []): ChecklistItemDto {
   return {
     id: i.id,
+    attachments,
+    options: i.options,
+    requirePhoto: i.requirePhoto,
     position: i.position,
     title: i.title,
     instruction: i.instruction,
@@ -112,9 +125,44 @@ export function toChecklistDto(i: ItemRow): ChecklistItemDto {
   }
 }
 
-/** Steps that still need an answer before the work can be submitted. */
-export const unanswered = (items: Array<{ required: boolean; result: string | null }>) =>
-  items.filter((i) => i.required && i.result === null).length
+/** Photos per checklist step (work-order steps or inspection items). */
+export async function stepPhotoCounts(
+  ownerType: Extract<AttachmentOwnerType, 'CHECKLIST_ITEM' | 'INSPECTION_ITEM'>,
+  ids: string[],
+  db: Tx | typeof prisma = prisma,
+): Promise<Map<string, number>> {
+  if (ids.length === 0) return new Map()
+  const rows = await db.attachment.groupBy({
+    by: ['ownerId'],
+    where: { ownerType, ownerId: { in: ids } },
+    _count: { _all: true },
+  })
+  return new Map(rows.map((r) => [r.ownerId, r._count._all]))
+}
+
+/**
+ * Steps that still block submission: required steps without an answer, and
+ * steps that need a photo but have none.
+ */
+export function unanswered(
+  items: Array<{
+    id?: string
+    required: boolean
+    requirePhoto?: boolean
+    result: ChecklistItemDto['result'] | string | null
+  }>,
+  photos: Map<string, number> = new Map(),
+) {
+  return items.filter(
+    (i) =>
+      !stepIsDone({
+        required: i.required,
+        requirePhoto: i.requirePhoto ?? false,
+        result: i.result as ChecklistItemDto['result'],
+        photoCount: i.id ? (photos.get(i.id) ?? 0) : 0,
+      }),
+  ).length
+}
 
 /**
  * Opens an unassigned follow-up work order for a failed step. Admins see it in

@@ -6,6 +6,7 @@ import {
   type Priority,
 } from '@maintainx/shared'
 import type { Prisma, PrismaClient } from '@prisma/client'
+import { deliverExternally } from './delivery.js'
 import { prisma } from './prisma.js'
 
 type Db = PrismaClient | Prisma.TransactionClient
@@ -57,6 +58,12 @@ export async function notify(
       actionUrl: input.actionUrl,
       priority: input.priority ?? 'MEDIUM',
     })),
+  })
+  deliverExternally(ids, {
+    type: input.type,
+    title: input.title,
+    body: input.body ?? null,
+    actionUrl: input.actionUrl,
   })
 }
 

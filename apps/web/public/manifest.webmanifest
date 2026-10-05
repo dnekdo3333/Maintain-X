@@ -1,0 +1,11 @@
+{
+  "name": "Bookends Maintenance",
+  "short_name": "Maintenance",
+  "description": "Maintenance work orders, assets and inspections for Bookends restaurants.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

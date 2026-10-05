@@ -3,6 +3,7 @@ import { prisma } from '../core/prisma.js'
 import { runPmGenerator } from '../modules/maintenance/pm-generator.js'
 import { pruneNotifications } from '../modules/notifications/notifications.service.js'
 import { runAlerts } from './alerts.js'
+import { IDEMPOTENCY_TTL_MS } from '../middleware/idempotency.js'
 
 /*
  * In-process background jobs. Each job is idempotent (safe to run twice, or
@@ -22,7 +23,10 @@ export async function cleanup() {
   const weekAgo = new Date(Date.now() - 7 * 86_400_000)
   const tokens = await prisma.refreshToken.deleteMany({ where: { expiresAt: { lt: weekAgo } } })
   const notifications = await pruneNotifications()
-  return { tokens: tokens.count, notifications }
+  const keys = await prisma.idempotencyKey.deleteMany({
+    where: { createdAt: { lt: new Date(Date.now() - IDEMPOTENCY_TTL_MS) } },
+  })
+  return { tokens: tokens.count, notifications, idempotencyKeys: keys.count }
 }
 
 export const JOBS: Job[] = [

@@ -2,6 +2,7 @@ import {
   idParamSchema,
   invoicePaidSchema,
   listVendorsQuerySchema,
+  vendorContractSchema,
   vendorInvoiceSchema,
   vendorSchema,
 } from '@maintainx/shared'
@@ -73,4 +74,36 @@ vendorsRouter.delete('/vendors/:id/invoices/:invoiceId', edit, async (req, res) 
   const { id, invoiceId } = parseParams(invoiceParams, req)
   await service.deleteInvoice(getAuth(req), id, invoiceId, req)
   res.status(204).end()
+})
+
+vendorsRouter.get('/vendors/:id/contracts', view, async (req, res) => {
+  const { id } = parseParams(idParamSchema, req)
+  sendData(res, await service.listContracts(getAuth(req), id))
+})
+
+vendorsRouter.post('/vendors/:id/contracts', edit, async (req, res) => {
+  const { id } = parseParams(idParamSchema, req)
+  sendCreated(
+    res,
+    await service.createContract(getAuth(req), id, parseBody(vendorContractSchema, req), req),
+  )
+})
+
+vendorsRouter.put('/vendors/:id/contracts/:contractId', edit, async (req, res) => {
+  const { id, contractId } = parseParams(z.object({ id: z.uuid(), contractId: z.uuid() }), req)
+  sendData(
+    res,
+    await service.updateContract(
+      getAuth(req),
+      id,
+      contractId,
+      parseBody(vendorContractSchema, req),
+      req,
+    ),
+  )
+})
+
+vendorsRouter.delete('/vendors/:id/contracts/:contractId', edit, async (req, res) => {
+  const { id, contractId } = parseParams(z.object({ id: z.uuid(), contractId: z.uuid() }), req)
+  sendData(res, await service.archiveContract(getAuth(req), id, contractId, req))
 })

@@ -279,6 +279,11 @@ function Inner({
               required
               options={FREQUENCY.map((f) => ({ value: f, label: enumLabel(t, 'frequency', f) }))}
             />
+            {(frequency === 'YEARLY' || frequency === 'ONCE') && (
+              <p className="self-end pb-2 text-13 text-muted-foreground">
+                {frequency === 'YEARLY' ? t('pm.yearlyHint') : t('pm.onceHint')}
+              </p>
+            )}
             {frequency === 'CUSTOM' && (
               <NumberField
                 control={form.control}

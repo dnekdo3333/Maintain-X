@@ -1,6 +1,12 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { QueryValue } from '@/services/http'
-import { restaurantsApi, rolesApi, teamsApi, usersApi } from '@/services/admin.service'
+import {
+  restaurantsApi,
+  rolesApi,
+  teamsApi,
+  usersApi,
+  type UserOptionPermission,
+} from '@/services/admin.service'
 
 /*
  * Query keys and hooks for the administration modules. Mutations invalidate
@@ -34,10 +40,14 @@ export function useUser(id: string) {
   })
 }
 
-export function useUserOptions(restaurantId: string | undefined, enabled = true) {
+export function useUserOptions(
+  restaurantId: string | undefined,
+  enabled = true,
+  permission?: UserOptionPermission,
+) {
   return useQuery({
-    queryKey: adminKeys.userOptions(restaurantId),
-    queryFn: ({ signal }) => usersApi.options(restaurantId, signal),
+    queryKey: [...adminKeys.userOptions(restaurantId), permission ?? 'any'],
+    queryFn: ({ signal }) => usersApi.options(restaurantId, signal, permission),
     enabled,
   })
 }

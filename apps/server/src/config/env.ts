@@ -75,6 +75,14 @@ const envSchema = z
     /** Protects GET /api/v1/jobs/run (Vercel Cron sends it as a Bearer token). */
     CRON_SECRET: z.string().min(16).optional(),
 
+    /** Email notifications (optional), e.g. smtps://user:pass@smtp.example.com:465 */
+    SMTP_URL: z.string().min(8).optional(),
+    MAIL_FROM: z.string().min(3).optional(),
+    /** Web Push (optional): generate with `npx web-push generate-vapid-keys`. */
+    VAPID_PUBLIC_KEY: z.string().min(20).optional(),
+    VAPID_PRIVATE_KEY: z.string().min(20).optional(),
+    VAPID_SUBJECT: z.string().min(5).optional(),
+
     RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
     RATE_LIMIT_MAX: z.coerce.number().int().positive().default(300),
   })
@@ -91,6 +99,20 @@ const envSchema = z
         code: 'custom',
         path: ['JWT_REFRESH_SECRET'],
         message: 'must differ from JWT_ACCESS_SECRET',
+      })
+    }
+    if (!!e.VAPID_PUBLIC_KEY !== !!e.VAPID_PRIVATE_KEY) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['VAPID_PRIVATE_KEY'],
+        message: 'set both VAPID keys (or neither)',
+      })
+    }
+    if (e.SMTP_URL && !/^smtps?:\/\//.test(e.SMTP_URL)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['SMTP_URL'],
+        message: 'must start with smtp:// or smtps://',
       })
     }
     if (e.isProduction && !e.COOKIE_SECURE) {

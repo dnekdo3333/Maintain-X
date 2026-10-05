@@ -4,6 +4,9 @@ import {
   DOCUMENT_OWNER_TYPE,
   DOCUMENT_TYPE,
   NOTIFICATION_TYPE,
+  PRIORITY,
+  WORK_ORDER_STATUS,
+  WORK_ORDER_TYPE,
   type AuditEntityType,
   type DocumentOwnerType,
   type DocumentType,
@@ -41,8 +44,26 @@ export interface NotificationDto {
 export const notificationPreferencesSchema = z.object({
   /** Types the user does NOT want in the app. */
   muted: z.array(z.enum(NOTIFICATION_TYPE)).max(NOTIFICATION_TYPE.length),
+  /** Types the user also wants by email (when email is set up). */
+  email: z.array(z.enum(NOTIFICATION_TYPE)).max(NOTIFICATION_TYPE.length).optional(),
 })
 export type NotificationPreferencesInput = z.infer<typeof notificationPreferencesSchema>
+
+export interface NotificationPreferences {
+  muted: NotificationType[]
+  email: NotificationType[]
+  /** Which extra channels the server is configured for. */
+  channels: { email: boolean; push: boolean; pushKey: string | null }
+}
+
+/** A browser Web Push subscription (PushSubscription.toJSON()). */
+export const pushSubscriptionSchema = z.object({
+  endpoint: z.url().max(1000),
+  keys: z.object({ p256dh: z.string().min(10).max(200), auth: z.string().min(8).max(100) }),
+})
+export type PushSubscriptionInput = z.infer<typeof pushSubscriptionSchema>
+
+export const pushUnsubscribeSchema = z.object({ endpoint: z.url().max(1000) })
 
 /** Critical alerts can't be muted. */
 export const UNMUTABLE_NOTIFICATIONS: readonly NotificationType[] = ['CRITICAL_ISSUE']
@@ -162,6 +183,13 @@ export const REPORT_KEYS = [
   'parts-consumption',
   'vendor-spend',
   'unpaid-invoices',
+  'maintenance-mix',
+  'labour',
+  'reliability',
+  'repeat-failures',
+  'failure-analysis',
+  'cost-breakdown',
+  'vendor-performance',
 ] as const
 export type ReportKey = (typeof REPORT_KEYS)[number]
 
@@ -176,11 +204,21 @@ export const REPORT_GROUPS: Record<
     'repair-time',
     'technician-performance',
     'requests-summary',
+    'maintenance-mix',
+    'labour',
   ],
-  assets: ['pm-compliance', 'asset-downtime', 'asset-cost'],
+  assets: [
+    'pm-compliance',
+    'asset-downtime',
+    'asset-cost',
+    'reliability',
+    'repeat-failures',
+    'failure-analysis',
+    'cost-breakdown',
+  ],
   quality: ['inspection-results', 'failed-checks'],
   inventory: ['inventory-valuation', 'low-stock', 'parts-consumption'],
-  purchasing: ['vendor-spend', 'unpaid-invoices'],
+  purchasing: ['vendor-spend', 'unpaid-invoices', 'vendor-performance'],
 }
 
 /** Reports that describe "now" ignore the date range. */
@@ -196,6 +234,15 @@ export const reportQuerySchema = z
     from: z.iso.date(),
     to: z.iso.date(),
     restaurantId: z.uuid().optional(),
+    // Work-order filters (reports in WORK_ORDER_FILTER_REPORTS).
+    locationId: z.uuid().optional(),
+    assetId: z.uuid().optional(),
+    userId: z.uuid().optional(),
+    teamId: z.uuid().optional(),
+    vendorId: z.uuid().optional(),
+    priority: z.enum(PRIORITY).optional(),
+    status: z.enum(WORK_ORDER_STATUS).optional(),
+    type: z.enum(WORK_ORDER_TYPE).optional(),
   })
   .refine((v) => v.from <= v.to, { message: 'validation.endBeforeStart', path: ['to'] })
   .refine((v) => Date.parse(v.to) - Date.parse(v.from) <= 366 * 86_400_000, {
@@ -274,4 +321,55 @@ export function toCsv(headers: string[], rows: unknown[][]): string {
     [headers.map(csvCell).join(','), ...rows.map((r) => r.map(csvCell).join(','))].join('\r\n') +
     '\r\n'
   )
+}
+
+/** Reports built from work orders: they accept the work-order filters. */
+export const WORK_ORDER_FILTER_REPORTS: readonly ReportKey[] = [
+  'work-order-summary',
+  'work-orders-completed',
+  'overdue-work-orders',
+  'repair-time',
+  'technician-performance',
+  'maintenance-mix',
+  'labour',
+  'reliability',
+  'repeat-failures',
+  'vendor-performance',
+]
+
+export const REPORT_FILTER_KEYS = [
+  'locationId',
+  'assetId',
+  'userId',
+  'teamId',
+  'vendorId',
+  'priority',
+  'status',
+  'type',
+] as const
+
+/** Work done over time, for the analytics charts. */
+export interface AnalyticsTrends {
+  /** "day" for ranges up to 31 days, otherwise "week" (weeks start Monday). */
+  bucket: 'day' | 'week'
+  points: Array<{
+    /** First day of the bucket (YYYY-MM-DD). */
+    start: string
+    created: number
+    completed: number
+    reactive: number
+    preventive: number
+    /** Average hours from creation to completion of the jobs completed in the bucket. */
+    mttrHours: number | null
+  }>
+  totals: {
+    created: number
+    completed: number
+    reactive: number
+    preventive: number
+    mttrHours: number | null
+    mtbfHours: number | null
+    pmCompliance: number | null
+    cost: { parts: number; labour: number; vendor: number; other: number; total: number }
+  }
 }

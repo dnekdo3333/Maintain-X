@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest'
+import type { StepInputType } from './enums.js'
 import {
   evaluateAnswer,
   nextOccurrence,
+  stepIsDone,
   upcomingOccurrences,
   type RecurrenceRule,
+  type StepAnswerInput,
 } from './maintenance.js'
 
 const rule = (o: Partial<RecurrenceRule>): RecurrenceRule => ({
@@ -74,5 +77,83 @@ describe('evaluateAnswer', () => {
     })
     const pf = { inputType: 'PASS_FAIL_NA' as const, minValue: null, maxValue: null }
     expect(evaluateAnswer(pf, { ...blank, result: 'FAIL' }).result).toBe('FAIL')
+  })
+})
+
+describe('yearly and one-off schedules', () => {
+  it('YEARLY repeats on the start date every year', () => {
+    const rule = { frequency: 'YEARLY' as const, startDate: '2026-03-15', dayOfMonth: 15 }
+    expect(upcomingOccurrences(rule, '2026-01-01', 3)).toEqual([
+      '2026-03-15',
+      '2027-03-15',
+      '2028-03-15',
+    ])
+    expect(nextOccurrence(rule, '2026-03-16')).toBe('2027-03-15')
+  })
+
+  it('ONCE happens on its date and then never again', () => {
+    const rule = { frequency: 'ONCE' as const, startDate: '2026-11-20' }
+    expect(nextOccurrence(rule, '2026-10-01')).toBe('2026-11-20')
+    expect(nextOccurrence(rule, '2026-11-21')).toBeNull()
+    expect(upcomingOccurrences(rule, '2026-10-01', 5)).toEqual(['2026-11-20'])
+  })
+})
+
+describe('new step types', () => {
+  const step = (inputType: StepInputType, options: string[] = []) => ({
+    inputType,
+    minValue: null,
+    maxValue: null,
+    options,
+  })
+  const answer = (o: Partial<StepAnswerInput>): StepAnswerInput => ({
+    result: '',
+    textValue: '',
+    note: '',
+    ...o,
+  })
+
+  it('checkbox: ticked passes, unticked clears', () => {
+    expect(evaluateAnswer(step('CHECKBOX'), answer({ result: 'PASS' })).result).toBe('PASS')
+    expect(evaluateAnswer(step('CHECKBOX'), answer({})).result).toBeNull()
+  })
+
+  it('multiple choice accepts only listed options (any case) and stores the canonical one', () => {
+    const s = step('MULTIPLE_CHOICE', ['Clean', 'Dirty'])
+    expect(evaluateAnswer(s, answer({ textValue: 'dirty' }))).toMatchObject({
+      result: 'PASS',
+      textValue: 'Dirty',
+    })
+    expect(evaluateAnswer(s, answer({ textValue: 'Greasy' })).result).toBeNull()
+  })
+
+  it('photo and signature steps pass only with the picture attached', () => {
+    expect(evaluateAnswer(step('PHOTO'), answer({ result: 'PASS' })).result).toBeNull()
+    expect(evaluateAnswer(step('SIGNATURE'), answer({}), true).result).toBe('PASS')
+  })
+
+  it('a step that needs a photo is not done without one', () => {
+    const base = { required: true, requirePhoto: true, result: 'PASS' as const }
+    expect(stepIsDone({ ...base, photoCount: 0 })).toBe(false)
+    expect(stepIsDone({ ...base, photoCount: 1 })).toBe(true)
+    expect(stepIsDone({ ...base, result: 'NA', photoCount: 0 })).toBe(true)
+    expect(stepIsDone({ required: false, requirePhoto: false, result: null, photoCount: 0 })).toBe(
+      true,
+    )
+  })
+})
+
+describe('guessCategory', () => {
+  it('picks the category from the words people type', async () => {
+    const { guessCategory } = await import('./work-orders.js')
+    expect(guessCategory('Fridge not cooling')).toBe('REFRIGERATION')
+    expect(guessCategory('AC dripping water')).toBe('AC')
+    expect(guessCategory('Kitchen temperature too high, light flickering')).toBe('ELECTRICAL')
+    expect(guessCategory('Sink tap leaking')).toBe('PLUMBING')
+    expect(guessCategory('Rats near the store room')).toBe('PEST_CONTROL')
+    expect(guessCategory('POS printer not printing')).toBe('IT_POS')
+    expect(guessCategory('फ्रिज ठंडा नहीं कर रहा')).toBe('REFRIGERATION')
+    expect(guessCategory('પાણી લીક થાય છે')).toBe('PLUMBING')
+    expect(guessCategory('Something strange')).toBe('OTHER')
   })
 })

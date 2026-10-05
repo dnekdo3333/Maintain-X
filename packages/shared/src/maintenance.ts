@@ -17,7 +17,7 @@ import {
   type WorkOrderStatus,
 } from './enums.js'
 import { paginationQuerySchema, sortQuerySchema } from './schemas/common.js'
-import type { PersonRef } from './work-orders.js'
+import type { AttachmentDto, PersonRef } from './work-orders.js'
 
 /*
  * Preventive maintenance schedules, procedures (step templates), work-order
@@ -63,6 +63,10 @@ export function nextOccurrence(rule: RecurrenceRule, from: string): string | nul
   let result: string | null = null
 
   switch (rule.frequency) {
+    case 'ONCE':
+      // A single date: the start date, until it has passed.
+      result = d === start ? start : null
+      break
     case 'DAILY':
       result = d
       break
@@ -85,8 +89,9 @@ export function nextOccurrence(rule: RecurrenceRule, from: string): string | nul
       break
     }
     case 'MONTHLY':
-    case 'QUARTERLY': {
-      const step = rule.frequency === 'MONTHLY' ? 1 : 3
+    case 'QUARTERLY':
+    case 'YEARLY': {
+      const step = rule.frequency === 'MONTHLY' ? 1 : rule.frequency === 'QUARTERLY' ? 3 : 12
       const s = new Date(toUtc(start))
       const day = rule.dayOfMonth ?? Math.min(28, s.getUTCDate())
       const dd = new Date(toUtc(d))
@@ -152,6 +157,7 @@ export const pmScheduleSchema = z
       ctx.addIssue({ code: 'custom', path: ['intervalDays'], message: 'validation.required' })
     if (v.frequency === 'WEEKLY' && v.daysOfWeek.length === 0)
       ctx.addIssue({ code: 'custom', path: ['daysOfWeek'], message: 'validation.selectOption' })
+    // YEARLY repeats on the start date's day; MONTHLY / QUARTERLY need a day.
     if ((v.frequency === 'MONTHLY' || v.frequency === 'QUARTERLY') && !v.dayOfMonth)
       ctx.addIssue({ code: 'custom', path: ['dayOfMonth'], message: 'validation.required' })
     if (v.endDate && v.endDate < v.startDate)
@@ -227,10 +233,21 @@ export const procedureStepSchema = z
     minValue: z.number().optional(),
     maxValue: z.number().optional(),
     required: z.boolean(),
+    /** MULTIPLE_CHOICE answers (2–10). */
+    options: z.array(z.string().trim().min(1).max(80)).max(10).optional(),
+    /** A photo must be attached before the step counts as done. */
+    requirePhoto: z.boolean().optional(),
   })
   .superRefine((s, ctx) => {
     if (s.minValue !== undefined && s.maxValue !== undefined && s.minValue > s.maxValue)
       ctx.addIssue({ code: 'custom', path: ['maxValue'], message: 'validation.maxBelowMin' })
+    if (s.inputType === 'MULTIPLE_CHOICE') {
+      const opts = s.options ?? []
+      if (opts.length < 2)
+        ctx.addIssue({ code: 'custom', path: ['options'], message: 'validation.optionsRequired' })
+      else if (new Set(opts.map((o) => o.toLowerCase())).size !== opts.length)
+        ctx.addIssue({ code: 'custom', path: ['options'], message: 'validation.duplicateOptions' })
+    }
   })
 export type ProcedureStepInput = z.infer<typeof procedureStepSchema>
 
@@ -254,6 +271,8 @@ export interface ProcedureStepDto {
   minValue: number | null
   maxValue: number | null
   required: boolean
+  options: string[]
+  requirePhoto: boolean
 }
 
 export interface ProcedureListItem {
@@ -286,6 +305,8 @@ export type StepAnswerInput = z.infer<typeof stepAnswerSchema>
 
 export interface ChecklistItemDto extends Omit<ProcedureStepDto, 'id'> {
   id: string
+  /** Photos (and the signature image) attached to this step. */
+  attachments: AttachmentDto[]
   result: StepResult | null
   numericValue: number | null
   textValue: string | null
@@ -300,10 +321,38 @@ export interface ChecklistItemDto extends Omit<ProcedureStepDto, 'id'> {
  * fails; inside it passes. TEXT passes when filled. PASS_FAIL_NA uses `result`.
  */
 export function evaluateAnswer(
-  step: { inputType: StepInputType; minValue: number | null; maxValue: number | null },
+  step: {
+    inputType: StepInputType
+    minValue: number | null
+    maxValue: number | null
+    options?: readonly string[]
+  },
   answer: StepAnswerInput,
+  /** PHOTO / SIGNATURE steps: is the picture (or signature) already attached? */
+  hasMedia = false,
 ): { result: StepResult | null; numericValue: number | null; textValue: string | null } {
+  const na = {
+    result: answer.result === 'NA' ? ('NA' as const) : null,
+    numericValue: null,
+    textValue: null,
+  }
   switch (step.inputType) {
+    case 'CHECKBOX':
+      // Ticked = done. Unticking clears it.
+      return {
+        result: answer.result === 'PASS' ? 'PASS' : na.result,
+        numericValue: null,
+        textValue: null,
+      }
+    case 'MULTIPLE_CHOICE': {
+      const choice = answer.textValue.trim()
+      if (!choice) return na
+      const match = (step.options ?? []).find((o) => o.toLowerCase() === choice.toLowerCase())
+      return match ? { result: 'PASS', numericValue: null, textValue: match } : na
+    }
+    case 'PHOTO':
+    case 'SIGNATURE':
+      return hasMedia ? { result: 'PASS', numericValue: null, textValue: null } : na
     case 'NUMBER': {
       const v = answer.numericValue
       if (v === undefined || Number.isNaN(v)) {
@@ -388,4 +437,21 @@ export interface InspectionDetail extends InspectionListItem {
   notes: string | null
   items: ChecklistItemDto[]
   can: { answer: boolean; submit: boolean }
+}
+
+/**
+ * Is a step done? Required steps need an answer, and steps that require a
+ * photo need at least one photo attached. One rule for app and server.
+ */
+export function stepIsDone(step: {
+  required: boolean
+  requirePhoto: boolean
+  result: StepResult | null
+  photoCount: number
+}): boolean {
+  if (step.result === 'NA') return true
+  if (step.required && step.result === null) return false
+  if (step.requirePhoto && step.result !== null && step.photoCount === 0) return false
+  if (step.requirePhoto && step.required && step.photoCount === 0) return false
+  return true
 }

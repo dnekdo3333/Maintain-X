@@ -51,7 +51,7 @@ export interface Fixture {
   }): Promise<User>
 }
 
-/** Organization, permission catalogue, the three system roles and N restaurants (R1…Rn, default 2). */
+/** Organization, permission catalogue, the system roles and N restaurants (R1…Rn, default 2). */
 export async function createFixture(options: { restaurants?: number } = {}): Promise<Fixture> {
   const org = await prisma.organization.create({ data: { name: 'Test Org', slug: 'test-org' } })
 
@@ -72,7 +72,7 @@ export async function createFixture(options: { restaurants?: number } = {}): Pro
         name: key,
         systemKey: key,
         isSystem: true,
-        kind: key === SYSTEM_ROLES.WORKER ? 'WORKER' : 'ADMIN',
+        kind: key === SYSTEM_ROLES.WORKER || key === SYSTEM_ROLES.REQUESTER ? 'WORKER' : 'ADMIN',
       },
     })
     await prisma.rolePermission.createMany({

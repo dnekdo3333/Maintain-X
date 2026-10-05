@@ -1,13 +1,15 @@
 import {
   PRIORITY,
+  WORK_ORDER_ACTIVE_STATUSES,
   WORK_ORDER_CATEGORY,
   WORK_ORDER_SORT_FIELDS,
   WORK_ORDER_STATUS,
+  WORK_ORDER_TYPE,
   fullName,
   type WorkOrderListItem,
 } from '@maintainx/shared'
 import { createColumnHelper } from '@tanstack/react-table'
-import { ClipboardList, Plus } from 'lucide-react'
+import { AlarmClock, ClipboardList, GitBranch, Plus } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useSearchParams } from 'react-router'
@@ -16,6 +18,7 @@ import { EmptyState } from '@/components/common/EmptyState'
 import { PageHeader } from '@/components/common/PageHeader'
 import { StatusBadge } from '@/components/common/StatusBadge'
 import { DataTable, FilterSelect, SearchInput } from '@/components/tables'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetBody, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { ViewSwitch } from '@/components/ui/view-switch'
@@ -33,16 +36,30 @@ const FILTERS = [
   'status',
   'priority',
   'category',
+  'type',
   'restaurantId',
+  'locationId',
   'assetId',
   'assignedUserId',
+  'assignedTeamId',
+  'vendorId',
+  'parentId',
 ] as const
 const TABLE_CONFIG = {
   sortFields: WORK_ORDER_SORT_FIELDS,
   defaultSort: { field: 'createdAt', direction: 'desc' },
   filters: FILTERS,
 } as const
-const VIEWS = ['all', 'active', 'overdue', 'unassigned', 'review'] as const
+const VIEWS = [
+  'all',
+  'active',
+  'overdue',
+  'unassigned',
+  'scheduled',
+  'review',
+  'draft',
+  'done',
+] as const
 const col = createColumnHelper<WorkOrderListItem>()
 
 export function WorkOrdersPage() {
@@ -84,9 +101,15 @@ export function WorkOrdersPage() {
       cell: ({ row: { original: w } }) => (
         <div className="min-w-56">
           <p className="font-medium">{w.title}</p>
-          <p className="text-13 text-muted-foreground">
+          <p className="flex flex-wrap items-center gap-x-1.5 text-13 text-muted-foreground">
             <span className="tabular">{w.code}</span>
-            {w.asset && ` · ${w.asset.name}`}
+            {w.asset && <span>· {w.asset.name}</span>}
+            {w.subProgress.total > 0 && (
+              <span className="inline-flex items-center gap-1">
+                · <GitBranch className="size-3.5" aria-hidden />
+                {t('wo.subProgress', w.subProgress)}
+              </span>
+            )}
           </p>
         </div>
       ),
@@ -94,7 +117,16 @@ export function WorkOrdersPage() {
     col.accessor('status', {
       header: t('wo.colStatus'),
       enableSorting: true,
-      cell: (c) => <StatusBadge kind="workOrderStatus" value={c.getValue()} />,
+      cell: ({ row: { original: w } }) => (
+        <div className="flex flex-wrap items-center gap-1">
+          <StatusBadge kind="workOrderStatus" value={w.status} />
+          {w.overdue && (
+            <Badge tone="danger">
+              <AlarmClock aria-hidden /> {t('wo.overdue')}
+            </Badge>
+          )}
+        </div>
+      ),
     }),
     col.accessor('priority', {
       header: t('wo.colPriority'),
@@ -125,7 +157,7 @@ export function WorkOrdersPage() {
       meta: { hideBelow: 'md' },
       cell: ({ row: { original: w } }) => {
         if (!w.dueDate) return <span className="text-muted-foreground">—</span>
-        const done = !['OPEN', 'ASSIGNED', 'IN_PROGRESS', 'ON_HOLD'].includes(w.status)
+        const done = !(WORK_ORDER_ACTIVE_STATUSES as readonly string[]).includes(w.status)
         const due = describeDue(w.dueDate, t)
         return (
           <span
@@ -215,6 +247,15 @@ export function WorkOrdersPage() {
               value={table.state.filters.priority}
               onChange={(v) => table.setFilter('priority', v)}
               options={PRIORITY.map((p) => ({ value: p, label: enumLabel(t, 'priority', p) }))}
+            />
+            <FilterSelect
+              label={t('wo.fieldType')}
+              value={table.state.filters.type}
+              onChange={(v) => table.setFilter('type', v)}
+              options={WORK_ORDER_TYPE.map((v) => ({
+                value: v,
+                label: enumLabel(t, 'workOrderType', v),
+              }))}
             />
             <FilterSelect
               label={t('wo.fieldCategory')}

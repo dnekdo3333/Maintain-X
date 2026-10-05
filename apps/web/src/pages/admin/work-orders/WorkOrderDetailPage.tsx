@@ -1,17 +1,26 @@
 import { fullName, type WorkOrderDetail } from '@maintainx/shared'
 import {
+  AlarmClock,
+  Ban,
+  CalendarClock,
   CheckCircle2,
+  GitBranch,
   Pause,
   Pencil,
   Play,
+  Plus,
   RotateCcw,
+  Send,
+  Trash2,
+  ThumbsUp,
+  Undo2,
   UserMinus,
   UserPlus,
   type LucideIcon,
 } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useParams } from 'react-router'
+import { Link, useNavigate, useParams } from 'react-router'
 import { Checklist } from '@/components/checklists/Checklist'
 import { checklistProgress } from '@/components/checklists/checklist-utils'
 import { Callout } from '@/components/common/Callout'
@@ -24,12 +33,17 @@ import { Button } from '@/components/ui/button'
 import { Panel, PanelBody, PanelHeader, PanelTitle } from '@/components/ui/panel'
 import { Sheet, SheetBody, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { Skeleton } from '@/components/ui/skeleton'
-import { AttachmentGallery, PhotoUploadButton } from '@/components/work-orders/Attachments'
+import { AttachmentGallery } from '@/components/work-orders/Attachments'
+import { CompletionSummary } from '@/components/work-orders/CompletionSummary'
+import { EvidencePanel } from '@/components/work-orders/EvidencePanel'
+import { CostPanel } from '@/components/work-orders/CostPanel'
+import { RootCausePanel } from '@/components/work-orders/RootCausePanel'
 import { HistoryList, MessagesPanel } from '@/components/work-orders/Timeline'
 import { WorkOrderDialogs } from '@/components/work-orders/WorkOrderDialogs'
 import { WorkOrderParts } from '@/components/work-orders/WorkOrderParts'
 import { WorkOrderForm } from '@/components/work-orders/WorkOrderForm'
 import { useWorkOrderActions } from '@/components/work-orders/useWorkOrderActions'
+import { useAuth } from '@/contexts/AuthContext'
 import { useWorkOrder } from '@/services/work-orders.service'
 import { formatDateTime, formatDuration } from '@/utils/format'
 import { enumLabel } from '@/utils/i18n'
@@ -61,8 +75,11 @@ export function WorkOrderDetailPage() {
 
 function Detail({ w, back }: { w: WorkOrderDetail; back: { to: string; label: string } }) {
   const { t } = useTranslation()
+  const { can } = useAuth()
+  const navigate = useNavigate()
   const a = useWorkOrderActions(w)
   const [editing, setEditing] = useState(false)
+  const [addingSub, setAddingSub] = useState(false)
 
   const buttons: Array<{
     key: string
@@ -70,15 +87,30 @@ function Detail({ w, back }: { w: WorkOrderDetail; back: { to: string; label: st
     label: string
     icon: LucideIcon
     onClick: () => void
-    primary?: boolean
+    variant?: 'default' | 'secondary' | 'destructive'
   }> = [
     {
-      key: 'close',
-      show: w.actions.close,
-      label: t('wo.approveClose'),
-      icon: CheckCircle2,
-      onClick: () => a.setDialog('close'),
-      primary: true,
+      key: 'publish',
+      show: w.actions.publish,
+      label: t('wo.publish'),
+      icon: Send,
+      onClick: a.publish,
+      variant: 'default',
+    },
+    {
+      key: 'verify',
+      show: w.actions.verify,
+      label: t('wo.verify'),
+      icon: ThumbsUp,
+      onClick: () => a.setDialog('verify'),
+      variant: 'default',
+    },
+    {
+      key: 'reject',
+      show: w.actions.reject,
+      label: t('wo.rejectWork'),
+      icon: Undo2,
+      onClick: () => a.setDialog('reject'),
     },
     {
       key: 'assign',
@@ -86,7 +118,7 @@ function Detail({ w, back }: { w: WorkOrderDetail; back: { to: string; label: st
       label: w.assignedUser || w.assignedTeam ? t('wo.reassign') : t('wo.assign'),
       icon: UserPlus,
       onClick: () => a.setDialog('assign'),
-      primary: w.status === 'OPEN',
+      variant: w.status === 'OPEN' ? 'default' : 'secondary',
     },
     { key: 'start', show: w.actions.start, label: t('wo.start'), icon: Play, onClick: a.start },
     { key: 'resume', show: w.actions.resume, label: t('wo.resume'), icon: Play, onClick: a.resume },
@@ -112,6 +144,13 @@ function Detail({ w, back }: { w: WorkOrderDetail; back: { to: string; label: st
       onClick: () => a.setDialog('reopen'),
     },
     {
+      key: 'reschedule',
+      show: w.actions.reschedule,
+      label: t('wo.reschedule'),
+      icon: CalendarClock,
+      onClick: () => a.setDialog('reschedule'),
+    },
+    {
       key: 'unassign',
       show: w.actions.unassign,
       label: t('wo.unassign'),
@@ -125,6 +164,14 @@ function Detail({ w, back }: { w: WorkOrderDetail; back: { to: string; label: st
       icon: Pencil,
       onClick: () => setEditing(true),
     },
+    {
+      key: 'cancel',
+      show: w.actions.cancel,
+      label: t('wo.cancelWo'),
+      icon: Ban,
+      onClick: () => a.setDialog('cancel'),
+      variant: 'destructive',
+    },
   ]
 
   const assignee = w.assignedUser
@@ -132,6 +179,7 @@ function Detail({ w, back }: { w: WorkOrderDetail; back: { to: string; label: st
     : w.assignedTeam
       ? t('wo.teamOption', { name: w.assignedTeam.name })
       : null
+  const canAddSub = !w.parent && w.actions.edit && can('work_orders:create') && w.status !== 'DRAFT'
 
   return (
     <>
@@ -142,7 +190,13 @@ function Detail({ w, back }: { w: WorkOrderDetail; back: { to: string; label: st
           <>
             <span className="text-13 text-muted-foreground tabular">{w.code}</span>
             <StatusBadge kind="workOrderStatus" value={w.status} />
+            {w.overdue && (
+              <Badge tone="danger">
+                <AlarmClock aria-hidden /> {t('wo.overdue')}
+              </Badge>
+            )}
             <StatusBadge kind="priority" value={w.priority} />
+            <Badge tone="outline">{enumLabel(t, 'workOrderType', w.type)}</Badge>
             <Badge tone="outline">{enumLabel(t, 'workOrderCategory', w.category)}</Badge>
           </>
         }
@@ -153,7 +207,7 @@ function Detail({ w, back }: { w: WorkOrderDetail; back: { to: string; label: st
               .map((b) => (
                 <Button
                   key={b.key}
-                  variant={b.primary ? 'default' : 'secondary'}
+                  variant={b.variant ?? 'secondary'}
                   loading={a.busy === b.key}
                   onClick={b.onClick}
                 >
@@ -164,14 +218,29 @@ function Detail({ w, back }: { w: WorkOrderDetail; back: { to: string; label: st
         }
       />
 
-      {w.status === 'REVIEW' && w.actions.close && (
+      {w.status === 'DRAFT' && (
+        <Callout tone="info" className="mb-4" title={t('wo.draftTitle')}>
+          {t('wo.draftBody')}
+        </Callout>
+      )}
+      {w.status === 'REVIEW' && w.actions.verify && (
         <Callout tone="info" className="mb-4" title={t('wo.reviewTitle')}>
           {t('wo.reviewBody')}
+        </Callout>
+      )}
+      {w.status === 'REOPENED' && w.rejectionReason && (
+        <Callout tone="danger" className="mb-4" title={t('wo.reworkTitle')}>
+          {w.rejectionReason}
         </Callout>
       )}
       {w.status === 'ON_HOLD' && w.holdReason && (
         <Callout tone="warning" className="mb-4" title={t('wo.onHoldBecause')}>
           {w.holdReason}
+        </Callout>
+      )}
+      {w.status === 'CANCELLED' && (
+        <Callout tone="warning" className="mb-4" title={t('wo.cancelledTitle')}>
+          {w.cancelReason}
         </Callout>
       )}
 
@@ -185,6 +254,18 @@ function Detail({ w, back }: { w: WorkOrderDetail; back: { to: string; label: st
               {w.description && <p className="mb-3 text-sm whitespace-pre-wrap">{w.description}</p>}
               <DetailList
                 items={[
+                  {
+                    label: t('wo.parent'),
+                    value: w.parent && (
+                      <Link
+                        to={`/work-orders/${w.parent.id}`}
+                        className="text-primary hover:underline"
+                      >
+                        {w.parent.code} · {w.parent.title}
+                      </Link>
+                    ),
+                    hidden: !w.parent,
+                  },
                   { label: t('wo.fieldRestaurant'), value: w.restaurant.name },
                   { label: t('wo.fieldLocation'), value: w.location?.name },
                   {
@@ -197,6 +278,24 @@ function Detail({ w, back }: { w: WorkOrderDetail; back: { to: string; label: st
                   },
                   { label: t('wo.fieldAssignee'), value: assignee },
                   {
+                    label: t('wo.fieldHelpers'),
+                    value: w.helpers.map(fullName).join(', '),
+                    hidden: w.helpers.length === 0,
+                  },
+                  {
+                    label: t('wo.fieldSupervisor'),
+                    value: w.supervisor ? fullName(w.supervisor) : t('wo.anySupervisor'),
+                  },
+                  {
+                    label: t('wo.fieldVendor'),
+                    value: w.vendor && (
+                      <Link to={`/vendors/${w.vendor.id}`} className="text-primary hover:underline">
+                        {w.vendor.name}
+                      </Link>
+                    ),
+                    hidden: !w.vendor,
+                  },
+                  {
                     label: t('wo.fromSchedule'),
                     value: w.pmSchedule && (
                       <Link
@@ -207,6 +306,11 @@ function Detail({ w, back }: { w: WorkOrderDetail; back: { to: string; label: st
                       </Link>
                     ),
                     hidden: !w.pmSchedule,
+                  },
+                  {
+                    label: t('wo.fieldScheduledStart'),
+                    value: w.scheduledStart && formatDateTime(w.scheduledStart),
+                    hidden: !w.scheduledStart,
                   },
                   { label: t('wo.fieldDue'), value: w.dueDate && formatDateTime(w.dueDate) },
                   {
@@ -236,9 +340,11 @@ function Detail({ w, back }: { w: WorkOrderDetail; back: { to: string; label: st
                     hidden: !w.completedAt,
                   },
                   {
-                    label: t('wo.closedBy'),
-                    value: w.closedBy && `${fullName(w.closedBy)} · ${formatDateTime(w.closedAt!)}`,
-                    hidden: !w.closedBy,
+                    label: t('wo.verifiedBy'),
+                    value:
+                      w.verifiedBy &&
+                      `${fullName(w.verifiedBy)} · ${formatDateTime(w.verifiedAt!)}`,
+                    hidden: !w.verifiedBy,
                   },
                   {
                     label: t('wo.reopenCount'),
@@ -258,6 +364,67 @@ function Detail({ w, back }: { w: WorkOrderDetail; back: { to: string; label: st
             </PanelBody>
           </Panel>
 
+          {(w.children.length > 0 || canAddSub) && (
+            <Panel>
+              <PanelHeader className="flex items-center justify-between gap-2">
+                <PanelTitle className="flex items-center gap-2">
+                  <GitBranch className="size-4 text-muted-foreground" aria-hidden />
+                  {t('wo.subWorkOrders')}
+                  {w.subProgress.total > 0 && (
+                    <span className="text-13 font-normal text-muted-foreground tabular">
+                      {t('wo.subProgress', w.subProgress)}
+                    </span>
+                  )}
+                </PanelTitle>
+                {canAddSub && (
+                  <Button size="sm" variant="secondary" onClick={() => setAddingSub(true)}>
+                    <Plus aria-hidden /> {t('wo.addSub')}
+                  </Button>
+                )}
+              </PanelHeader>
+              <PanelBody>
+                {w.subProgress.total > 0 && (
+                  <div
+                    className="mb-3 h-2 overflow-hidden rounded-full bg-muted"
+                    role="progressbar"
+                    aria-valuemin={0}
+                    aria-valuemax={w.subProgress.total}
+                    aria-valuenow={w.subProgress.done}
+                    aria-label={t('wo.subProgress', w.subProgress)}
+                  >
+                    <div
+                      className="h-full rounded-full bg-success transition-[width] duration-(--duration-slow)"
+                      style={{ width: `${(w.subProgress.done / w.subProgress.total) * 100}%` }}
+                    />
+                  </div>
+                )}
+                {w.children.length === 0 ? (
+                  <p className="text-13 text-muted-foreground">{t('wo.noSubs')}</p>
+                ) : (
+                  <ul className="divide-y">
+                    {w.children.map((c) => (
+                      <li key={c.id}>
+                        <Link
+                          to={`/work-orders/${c.id}`}
+                          className="flex items-center gap-3 py-2 text-sm hover:text-primary"
+                        >
+                          <span className="text-13 text-muted-foreground tabular">{c.code}</span>
+                          <span className="min-w-0 flex-1 truncate font-medium">{c.title}</span>
+                          {c.assignedUser && (
+                            <span className="hidden text-13 text-muted-foreground sm:inline">
+                              {fullName(c.assignedUser)}
+                            </span>
+                          )}
+                          <StatusBadge kind="workOrderStatus" value={c.status} />
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </PanelBody>
+            </Panel>
+          )}
+
           {w.checklist.length > 0 && (
             <Panel>
               <PanelHeader className="flex items-center justify-between gap-2">
@@ -274,12 +441,20 @@ function Detail({ w, back }: { w: WorkOrderDetail; back: { to: string; label: st
                 </span>
               </PanelHeader>
               <PanelBody>
-                <Checklist items={w.checklist} editable={w.actions.checklist} onAnswer={a.answer} />
+                <Checklist
+                  items={w.checklist}
+                  editable={w.actions.checklist}
+                  onAnswer={a.answer}
+                  onUpload={a.uploadStep}
+                />
               </PanelBody>
             </Panel>
           )}
 
-          {(w.parts.length > 0 || w.actions.parts) && (
+          {(w.parts.length > 0 ||
+            w.actions.parts ||
+            w.actions.reserve ||
+            w.reservations.length > 0) && (
             <Panel>
               <PanelHeader>
                 <PanelTitle>{t('woParts.title')}</PanelTitle>
@@ -306,27 +481,85 @@ function Detail({ w, back }: { w: WorkOrderDetail; back: { to: string; label: st
           )}
 
           <Panel>
-            <PanelHeader className="flex items-center justify-between gap-2">
-              <PanelTitle>{t('wo.photos')}</PanelTitle>
-              {w.actions.upload && <PhotoUploadButton size="sm" upload={a.upload} />}
+            <PanelHeader>
+              <PanelTitle>{t('evidence.title')}</PanelTitle>
             </PanelHeader>
             <PanelBody>
-              {w.attachments.length === 0 ? (
-                <p className="text-13 text-muted-foreground">{t('wo.noPhotos')}</p>
-              ) : (
-                <AttachmentGallery items={w.attachments} />
-              )}
+              <EvidencePanel w={w} upload={a.upload} />
             </PanelBody>
           </Panel>
+
+          {w.completion && (
+            <Panel>
+              <PanelHeader>
+                <PanelTitle>{t('completion.reportTitle')}</PanelTitle>
+              </PanelHeader>
+              <PanelBody>
+                <CompletionSummary report={w.completion} />
+              </PanelBody>
+            </Panel>
+          )}
         </div>
 
         <div className="grid content-start gap-4">
+          <CostPanel w={w} actions={a} />
+          <RootCausePanel w={w} save={a.rootCause} />
+          <Panel>
+            <PanelHeader className="flex items-center justify-between gap-2">
+              <PanelTitle>{t('wo.timeLog')}</PanelTitle>
+              {w.actions.time && (
+                <Button size="sm" variant="secondary" onClick={() => a.setDialog('time')}>
+                  <Plus aria-hidden /> {t('wo.addTime')}
+                </Button>
+              )}
+            </PanelHeader>
+            <PanelBody>
+              {w.timeEntries.length === 0 ? (
+                <p className="text-13 text-muted-foreground">{t('wo.noTime')}</p>
+              ) : (
+                <ul className="divide-y text-sm">
+                  {w.timeEntries.map((e) => (
+                    <li key={e.id} className="flex items-center gap-3 py-2">
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-medium">{fullName(e.user)}</span>
+                        <span className="block truncate text-xs text-muted-foreground">
+                          {formatDateTime(e.startedAt)}
+                          {e.manual && ` · ${t('wo.timeManual')}`}
+                          {e.note && ` · ${e.note}`}
+                        </span>
+                      </span>
+                      <span className="font-medium tabular">
+                        {e.minutes === null ? t('wo.timerRunning') : formatDuration(e.minutes)}
+                      </span>
+                      {e.manual && w.actions.time && (
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          aria-label={t('wo.removeTime')}
+                          loading={a.busy === `time:${e.id}`}
+                          onClick={() => a.removeTime(e.id)}
+                        >
+                          <Trash2 aria-hidden />
+                        </Button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </PanelBody>
+          </Panel>
           <Panel>
             <PanelHeader>
               <PanelTitle>{t('wo.messages')}</PanelTitle>
             </PanelHeader>
             <PanelBody>
-              <MessagesPanel messages={w.messages} canSend={w.actions.message} send={a.message} />
+              <MessagesPanel
+                messages={w.messages}
+                canSend={w.actions.message}
+                canInternal={w.actions.internalNotes}
+                workOrderId={w.id}
+                send={a.message}
+              />
             </PanelBody>
           </Panel>
           <Panel>
@@ -353,6 +586,33 @@ function Detail({ w, back }: { w: WorkOrderDetail; back: { to: string; label: st
                 workOrder={w}
                 onCancel={() => setEditing(false)}
                 onDone={() => setEditing(false)}
+              />
+            )}
+          </SheetBody>
+        </SheetContent>
+      </Sheet>
+
+      <Sheet open={addingSub} onOpenChange={setAddingSub}>
+        <SheetContent aria-describedby={undefined}>
+          <SheetHeader>
+            <SheetTitle>{t('wo.addSub')}</SheetTitle>
+          </SheetHeader>
+          <SheetBody>
+            {addingSub && (
+              <WorkOrderForm
+                prefill={{
+                  parent: { id: w.id, code: w.code, title: w.title },
+                  restaurantId: w.restaurant.id,
+                  locationId: w.location?.id ?? null,
+                  category: w.category,
+                  priority: w.priority,
+                  type: w.type,
+                }}
+                onCancel={() => setAddingSub(false)}
+                onDone={(sub) => {
+                  setAddingSub(false)
+                  navigate(`/work-orders/${sub.id}`)
+                }}
               />
             )}
           </SheetBody>

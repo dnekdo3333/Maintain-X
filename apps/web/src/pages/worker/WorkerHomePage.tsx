@@ -2,6 +2,8 @@ import {
   AlarmClock,
   CalendarCheck2,
   CheckCheck,
+  Flame,
+  Wrench,
   ChevronRight,
   ClipboardCheck,
   ListTodo,
@@ -15,11 +17,12 @@ import { Link } from 'react-router'
 import { EmptyState } from '@/components/common/EmptyState'
 import { ErrorState } from '@/components/common/ErrorState'
 import { Skeleton } from '@/components/ui/skeleton'
-import { useCurrentUser } from '@/contexts/AuthContext'
+import { StatusBadge } from '@/components/common/StatusBadge'
+import { useAuth, useCurrentUser } from '@/contexts/AuthContext'
+import { useRequests } from '@/services/work-orders.service'
 import { useWorkerHome } from '@/services/worker.service'
 import { cn } from '@/utils/cn'
-import { formatNumber } from '@/utils/format'
-import { intlLocale } from '@/utils/format'
+import { formatNumber, formatRelative, intlLocale } from '@/utils/format'
 import { TaskListSkeleton, WorkerTaskList } from './WorkerTaskList'
 
 function greetingKey(hour: number) {
@@ -45,11 +48,106 @@ const TONE: Record<Stat['tone'], string> = {
   success: 'bg-success-soft text-success-fg',
 }
 
+/** Technicians get their work; restaurant staff (requesters) get reporting. */
+export function WorkerHomePage() {
+  const { can } = useAuth()
+  return can('work_orders:view') ? <TechnicianHome /> : <RequesterHome />
+}
+
+/** Staff who only report problems: one big button, and how their reports are going. */
+function RequesterHome() {
+  const { t } = useTranslation()
+  const user = useCurrentUser()
+  const reports = useRequests({ mine: '1', pageSize: 5 })
+  const now = new Date()
+  return (
+    <div className="grid gap-5 p-4 lg:gap-6 lg:p-8">
+      <section className="bg-brand animate-rise relative overflow-hidden rounded-2xl px-5 py-6 shadow-[0_12px_32px_-12px_oklch(0.42_0.17_262/0.55)] lg:px-8 lg:py-8">
+        <span
+          aria-hidden
+          className="absolute -top-10 -right-10 size-40 rounded-full bg-white/10 blur-2xl"
+        />
+        <h1 className="relative text-2xl font-semibold tracking-tight lg:text-3xl">
+          {t(greetingKey(now.getHours()), { name: user.firstName })}
+        </h1>
+        <p className="relative mt-1 text-sm text-white/85">{t('worker.requesterHero')}</p>
+      </section>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Link
+          to="/w/report"
+          className="card-lift flex items-center gap-4 rounded-2xl border bg-card p-5 shadow-card"
+        >
+          <span className="bg-brand flex size-12 shrink-0 items-center justify-center rounded-xl">
+            <Megaphone className="size-6" aria-hidden />
+          </span>
+          <span>
+            <span className="block text-base font-semibold">{t('report.cta')}</span>
+            <span className="block text-13 text-muted-foreground">{t('worker.reportHint')}</span>
+          </span>
+        </Link>
+        <Link
+          to="/w/scan"
+          className="card-lift flex items-center gap-4 rounded-2xl border bg-card p-5 shadow-card"
+        >
+          <span className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-info-soft text-info-fg">
+            <ScanLine className="size-6" aria-hidden />
+          </span>
+          <span>
+            <span className="block text-base font-semibold">{t('nav.scan')}</span>
+            <span className="block text-13 text-muted-foreground">{t('worker.scanHint')}</span>
+          </span>
+        </Link>
+      </div>
+      <section className="grid gap-3" aria-labelledby="my-reports">
+        <div className="flex items-baseline justify-between">
+          <h2 id="my-reports" className="text-base font-semibold">
+            {t('report.mine')}
+          </h2>
+          <Link to="/w/reports" className="text-13 font-medium text-primary hover:underline">
+            {t('worker.seeAll')}
+          </Link>
+        </div>
+        {reports.isPending ? (
+          <Skeleton className="h-32 w-full" />
+        ) : reports.isError ? (
+          <ErrorState error={reports.error} onRetry={() => void reports.refetch()} compact />
+        ) : reports.data.data.length === 0 ? (
+          <div className="rounded-xl border bg-card shadow-card">
+            <EmptyState
+              compact
+              icon={Megaphone}
+              title={t('report.noneTitle')}
+              description={t('report.noneBody')}
+            />
+          </div>
+        ) : (
+          <ul className="stagger grid gap-2">
+            {reports.data.data.map((r) => (
+              <li
+                key={r.id}
+                className="flex items-center justify-between gap-3 rounded-xl border bg-card px-4 py-3 shadow-card"
+              >
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-medium">{r.title}</span>
+                  <span className="text-xs text-muted-foreground tabular">
+                    {r.code} · {formatRelative(r.createdAt)}
+                  </span>
+                </span>
+                <StatusBadge kind="requestStatus" value={r.status} />
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    </div>
+  )
+}
+
 /**
- * Worker home. Phone: a stacked app screen. Desktop: a small dashboard with
+ * Technician home. Phone: a stacked app screen. Desktop: a small dashboard with
  * the task list next to quick actions.
  */
-export function WorkerHomePage() {
+function TechnicianHome() {
   const { t } = useTranslation()
   const user = useCurrentUser()
   const query = useWorkerHome()
@@ -72,7 +170,7 @@ export function WorkerHomePage() {
     {
       label: t('worker.countOverdue'),
       value: c?.overdue,
-      to: '/w/tasks',
+      to: '/w/tasks?view=overdue',
       icon: AlarmClock,
       tone: 'danger',
       alert: (c?.overdue ?? 0) > 0,
@@ -90,6 +188,27 @@ export function WorkerHomePage() {
       to: '/w/tasks?view=done',
       icon: CalendarCheck2,
       tone: 'success',
+    },
+    {
+      label: t('worker.countHighPriority'),
+      value: c?.highPriority,
+      to: '/w/tasks?view=upcoming&priority=CRITICAL',
+      icon: Flame,
+      tone: 'danger',
+    },
+    {
+      label: t('worker.countPreventive'),
+      value: c?.preventive,
+      to: '/w/tasks?view=upcoming&pm=1',
+      icon: Wrench,
+      tone: 'info',
+    },
+    {
+      label: t('worker.countChecklists'),
+      value: c?.checklistsDue,
+      to: '/w/checklists',
+      icon: ClipboardCheck,
+      tone: 'warning',
     },
   ]
 

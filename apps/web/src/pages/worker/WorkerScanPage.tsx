@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import { Callout } from '@/components/common/Callout'
 import { WorkerPageHeader } from '@/components/worker/WorkerPageHeader'
-import { parseAssetQr } from '@/utils/qr'
+import { parseAppQr } from '@/utils/qr'
 
 export function WorkerScanPage() {
   const { t } = useTranslation()
@@ -14,10 +14,12 @@ export function WorkerScanPage() {
 
   const onScan = (codes: IDetectedBarcode[]) => {
     for (const code of codes) {
-      const publicId = parseAssetQr(code.rawValue)
-      if (publicId) {
+      const hit = parseAppQr(code.rawValue)
+      if (hit) {
         setOpening(true)
-        navigate(`/a/${publicId}`)
+        navigate(
+          `/${hit.kind === 'asset' ? 'a' : hit.kind === 'location' ? 'l' : 'p'}/${hit.publicId}`,
+        )
         return
       }
     }

@@ -2,6 +2,8 @@ import {
   idParamSchema,
   listNotificationsQuerySchema,
   notificationPreferencesSchema,
+  pushSubscriptionSchema,
+  pushUnsubscribeSchema,
 } from '@maintainx/shared'
 import { Router } from 'express'
 import { sendData } from '../../core/http.js'
@@ -36,6 +38,20 @@ notificationsRouter.put('/notifications/preferences', async (req, res) => {
     res,
     await service.setPreferences(getAuth(req), parseBody(notificationPreferencesSchema, req)),
   )
+})
+
+notificationsRouter.post('/notifications/push', async (req, res) => {
+  await service.subscribePush(
+    getAuth(req),
+    parseBody(pushSubscriptionSchema, req),
+    req.get('user-agent'),
+  )
+  res.status(204).end()
+})
+
+notificationsRouter.delete('/notifications/push', async (req, res) => {
+  await service.unsubscribePush(getAuth(req), parseBody(pushUnsubscribeSchema, req).endpoint)
+  res.status(204).end()
 })
 
 notificationsRouter.post('/notifications/:id/read', async (req, res) => {

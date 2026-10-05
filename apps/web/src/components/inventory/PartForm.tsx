@@ -44,10 +44,12 @@ export function PartForm({
       ? {
           name: part.name,
           partNumber: part.partNumber,
+          sku: part.sku ?? '',
           category: part.category ?? '',
           unit: part.unit,
           unitCost: part.unitCost,
           minStock: part.minStock,
+          reorderQty: part.reorderQty ?? undefined,
           preferredVendorId: part.preferredVendor?.id ?? NONE,
           storageLocation: part.storageLocation ?? '',
           description: part.description ?? '',
@@ -55,6 +57,7 @@ export function PartForm({
       : {
           name: '',
           partNumber: '',
+          sku: '',
           category: '',
           unit: 'pcs',
           unitCost: 0,
@@ -103,17 +106,24 @@ export function PartForm({
           />
           <TextField
             control={form.control}
-            name="category"
-            label={t('parts.category')}
-            list="part-categories"
+            name="sku"
+            label={t('parts.sku')}
+            description={t('parts.skuHint')}
             optional
           />
-          <datalist id="part-categories">
-            {(categories.data ?? []).map((c) => (
-              <option key={c} value={c} />
-            ))}
-          </datalist>
         </div>
+        <TextField
+          control={form.control}
+          name="category"
+          label={t('parts.category')}
+          list="part-categories"
+          optional
+        />
+        <datalist id="part-categories">
+          {(categories.data ?? []).map((c) => (
+            <option key={c} value={c} />
+          ))}
+        </datalist>
         <div className="grid gap-4 sm:grid-cols-3">
           <TextField
             control={form.control}
@@ -139,6 +149,15 @@ export function PartForm({
             step={1}
           />
         </div>
+        <NumberField
+          control={form.control}
+          name="reorderQty"
+          label={t('parts.reorderQty')}
+          description={t('parts.reorderQtyHint')}
+          optional
+          min={0}
+          step={1}
+        />
         <SelectField
           control={form.control}
           name="preferredVendorId"

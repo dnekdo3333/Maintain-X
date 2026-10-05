@@ -59,6 +59,27 @@ export default defineConfig({
       testMatch: /review\..*spec\.ts/,
       dependencies: ['mobile'],
     },
+    {
+      // The full CMMS lifecycle; opens its own phone context for the technician.
+      name: 'cmms',
+      use: { ...devices['Desktop Chrome'] },
+      testMatch: /cmms\..*spec\.ts/,
+      dependencies: ['review'],
+    },
+    {
+      // Stock control after the CMMS job used a part.
+      name: 'inventory',
+      use: { ...devices['Desktop Chrome'] },
+      testMatch: /inventory\..*spec\.ts/,
+      dependencies: ['cmms'],
+    },
+    {
+      // Meters, automations, offline sync, root cause and analytics.
+      name: 'automation',
+      use: { ...devices['Desktop Chrome'] },
+      testMatch: /automation\..*spec\.ts/,
+      dependencies: ['inventory'],
+    },
   ],
   webServer: [
     {

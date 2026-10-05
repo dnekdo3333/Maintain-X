@@ -1,5 +1,6 @@
 import {
   ERROR_CODES,
+  type ApproveRequestInput,
   type CreateRequestInput,
   type ListRequestsQuery,
   type PagedResponse,
@@ -10,6 +11,7 @@ import {
 import type { Prisma } from '@prisma/client'
 import type { Request as HttpRequest } from 'express'
 import { attachmentsOf, listAttachments, saveAttachments } from '../../core/attachments.js'
+import { runAutomations } from '../../core/automations.js'
 import { recordAudit } from '../../core/audit.js'
 import { canAccessRestaurant, hasPermission, restaurantScope } from '../../core/authz.js'
 import { nextCode } from '../../core/counters.js'
@@ -124,17 +126,23 @@ export async function getRequest(auth: AuthContext, id: string): Promise<Request
   const r = await load(auth, id)
   const files = await listAttachments([{ type: 'REQUEST', id }])
   const attachments = attachmentsOf(files, 'REQUEST', id)
-  const canDecide =
-    r.status === 'NEW' && auth.user.roleKind !== 'WORKER' && hasPermission(auth, 'requests:approve')
+  const reviewer = auth.user.roleKind !== 'WORKER' && hasPermission(auth, 'requests:approve')
+  // NEW: approve, reject or convert. APPROVED (accepted, not yet a job): convert or reject.
+  const open = r.status === 'NEW' || r.status === 'APPROVED'
   return {
     ...toListItem(r, attachments.length),
     description: r.description,
     reviewedBy: r.reviewedBy,
     reviewedAt: r.reviewedAt?.toISOString() ?? null,
     rejectionReason: r.rejectionReason,
+    reviewNote: r.reviewNote,
     workOrder: r.convertedWorkOrder,
     attachments,
-    can: { convert: canDecide && hasPermission(auth, 'work_orders:create'), reject: canDecide },
+    can: {
+      convert: reviewer && open && hasPermission(auth, 'work_orders:create'),
+      reject: reviewer && open,
+      approve: reviewer && r.status === 'NEW',
+    },
   }
 }
 
@@ -217,6 +225,15 @@ export async function createRequest(
   if (created.priority === 'CRITICAL') {
     await notify(reviewers, { ...message, type: 'CRITICAL_ISSUE' }, { exclude: auth.userId })
   }
+  await runAutomations('REQUEST_CREATED', {
+    organizationId: auth.organizationId,
+    restaurantId: created.restaurantId,
+    requestId: created.id,
+    assetId: created.assetId,
+    priority: created.priority,
+    category: created.category,
+    label: `${created.code} · ${created.title}`,
+  })
   return getRequest(auth, created.id)
 }
 
@@ -227,9 +244,9 @@ export async function addRequestPhotos(
   req: HttpRequest,
 ): Promise<RequestDetail> {
   const r = await load(auth, id)
-  // The reporter adds photos while the request is open; reviewers may too.
-  if (r.status !== 'NEW' || (r.requestedBy.id !== auth.userId && !isReviewer(auth)))
-    throw new ForbiddenError()
+  // The reporter adds photos and voice notes while the request is open; reviewers may too.
+  const open = r.status === 'NEW' || r.status === 'APPROVED'
+  if (!open || (r.requestedBy.id !== auth.userId && !isReviewer(auth))) throw new ForbiddenError()
   const ids = await saveAttachments(files, { type: 'REQUEST', id }, auth.userId)
   await recordAudit(
     {
@@ -256,7 +273,7 @@ export async function rejectRequest(
   if (!(await getRequest(auth, id)).can.reject) throw new ForbiddenError()
   await prisma.$transaction(async (tx) => {
     const done = await tx.request.updateMany({
-      where: { id, status: 'NEW' },
+      where: { id, status: { in: ['NEW', 'APPROVED'] } },
       data: {
         status: 'REJECTED',
         rejectionReason: input.reason,
@@ -277,11 +294,79 @@ export async function rejectRequest(
         action: 'request.rejected',
         entityType: 'REQUEST',
         entityId: id,
+        oldValue: { status: r.status },
+        newValue: { status: 'REJECTED' },
         metadata: { reason: input.reason },
       },
       req,
       tx,
     )
   })
+  await notifyRequester(auth, r, 'REQUEST_REJECTED', input.reason)
   return getRequest(auth, id)
+}
+
+/** Accepts the request (it will be handled) without creating the work order yet. */
+export async function approveRequest(
+  auth: AuthContext,
+  id: string,
+  input: ApproveRequestInput,
+  req: HttpRequest,
+): Promise<RequestDetail> {
+  const r = await load(auth, id)
+  if (!(await getRequest(auth, id)).can.approve) throw new ForbiddenError()
+  await prisma.$transaction(async (tx) => {
+    const done = await tx.request.updateMany({
+      where: { id, status: 'NEW' },
+      data: {
+        status: 'APPROVED',
+        reviewNote: input.note || null,
+        reviewedById: auth.userId,
+        reviewedAt: new Date(),
+      },
+    })
+    if (done.count === 0)
+      throw new ConflictError(
+        'This request has already been handled.',
+        ERROR_CODES.ALREADY_CONVERTED,
+      )
+    await recordAudit(
+      {
+        organizationId: auth.organizationId,
+        restaurantId: r.restaurant.id,
+        actorId: auth.userId,
+        action: 'request.approved',
+        entityType: 'REQUEST',
+        entityId: id,
+        oldValue: { status: 'NEW' },
+        newValue: { status: 'APPROVED' },
+        metadata: input.note ? { note: input.note } : undefined,
+      },
+      req,
+      tx,
+    )
+  })
+  await notifyRequester(auth, r, 'REQUEST_APPROVED', input.note || null)
+  return getRequest(auth, id)
+}
+
+async function notifyRequester(
+  auth: AuthContext,
+  r: Row,
+  type: 'REQUEST_APPROVED' | 'REQUEST_REJECTED',
+  body: string | null,
+) {
+  await notify(
+    [r.requestedBy.id],
+    {
+      organizationId: auth.organizationId,
+      type,
+      title: `${r.code} · ${r.title}`,
+      body,
+      entityType: 'REQUEST',
+      entityId: r.id,
+      actionUrl: '/w/reports',
+    },
+    { exclude: auth.userId },
+  )
 }

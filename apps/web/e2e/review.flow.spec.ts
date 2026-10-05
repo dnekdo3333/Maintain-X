@@ -19,11 +19,11 @@ test.describe('admin review (desktop)', () => {
     await page.getByRole('button', { name: 'To review' }).click()
     await page.getByText(JOB_TITLE).click()
 
-    await expect(page.getByText('Waiting for your review')).toBeVisible()
+    await expect(page.getByText('Waiting for your verification')).toBeVisible()
     await expect(page.getByText('Old gasket was torn, replacing now')).toBeVisible()
-    await page.getByRole('button', { name: 'Approve & close' }).click()
-    await page.getByRole('dialog').getByRole('button', { name: 'Close work order' }).click()
-    await expect(page.getByText('Closed by')).toBeVisible()
+    await page.getByRole('button', { name: 'Approve work' }).click()
+    await page.getByRole('dialog').getByRole('button', { name: 'Approve work' }).click()
+    await expect(page.getByText('Verified by')).toBeVisible()
   })
 
   test('the reported problem waits in Requests', async ({ page }) => {
@@ -32,6 +32,6 @@ test.describe('admin review (desktop)', () => {
       .getByRole('navigation', { name: 'Main navigation' })
       .getByRole('link', { name: 'Requests' })
       .click()
-    await expect(page.getByText('Hand-wash tap is leaking under the sink').first()).toBeVisible()
+    await expect(page.getByText('Sink leaking').first()).toBeVisible()
   })
 })

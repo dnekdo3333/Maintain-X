@@ -1,6 +1,12 @@
 import {
+  PRIORITY,
+  REPORT_FILTER_KEYS,
   REPORT_KEYS,
   SNAPSHOT_REPORTS,
+  WORK_ORDER_FILTER_REPORTS,
+  WORK_ORDER_STATUS,
+  WORK_ORDER_TYPE,
+  fullName,
   type ReportCell,
   type ReportColumn,
   type ReportColumnType,
@@ -21,12 +27,13 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Panel } from '@/components/ui/panel'
 import { Skeleton } from '@/components/ui/skeleton'
-import { toast } from '@/components/ui/toaster'
 import { useRestaurantScope } from '@/contexts/RestaurantScopeContext'
-import { useRestaurants } from '@/hooks/useAdminQueries'
+import { useRestaurants, useTeams, useUserOptions } from '@/hooks/useAdminQueries'
+import { useAssets } from '@/services/assets.service'
+import { useVendorOptions } from '@/services/purchasing.service'
 import { reportsApi, useReport } from '@/services/platform.service'
 import { cn } from '@/utils/cn'
-import { describeError } from '@/utils/errors'
+import { reportError } from '@/utils/errors'
 import { formatCurrency, formatDate, formatDateTime, formatNumber } from '@/utils/format'
 import { enumLabel, looseT, type EnumKind } from '@/utils/i18n'
 
@@ -41,6 +48,7 @@ const ENUM_COLUMNS: Partial<Record<string, EnumKind>> = {
   priority: 'priority',
   category: 'workOrderCategory',
   currentStatus: 'assetStatus',
+  topCategory: 'workOrderCategory',
 }
 
 export function ReportViewPage() {
@@ -61,7 +69,18 @@ function ReportView({ reportKey }: { reportKey: ReportKey }) {
   const restaurantId = params.get('restaurantId') ?? scope.restaurantId ?? undefined
   const snapshot = SNAPSHOT_REPORTS.includes(reportKey)
   const valid = from <= to
-  const query = useReport(reportKey, { from, to, restaurantId }, valid)
+  const woFilters = WORK_ORDER_FILTER_REPORTS.includes(reportKey)
+  const filters = Object.fromEntries(
+    REPORT_FILTER_KEYS.flatMap((k) => {
+      const v = params.get(k)
+      return woFilters && v ? [[k, v]] : []
+    }),
+  )
+  const query = useReport(reportKey, { from, to, restaurantId, ...filters }, valid)
+  const people = useUserOptions(restaurantId, woFilters)
+  const teams = useTeams()
+  const vendors = useVendorOptions(restaurantId, woFilters)
+  const assets = useAssets({ restaurantId, pageSize: 100, sort: 'name:asc' }, woFilters)
   const [exporting, setExporting] = useState(false)
 
   const set = (k: string, v: string | undefined) => {
@@ -74,11 +93,13 @@ function ReportView({ reportKey }: { reportKey: ReportKey }) {
   const format = (c: ReportColumn, v: ReportCell) => {
     if (v === null || v === undefined || v === '') return '—'
     const kind =
-      c.key === 'type'
-        ? reportKey === 'inspection-results'
-          ? 'inspectionType'
-          : 'workOrderType'
-        : ENUM_COLUMNS[c.key]
+      reportKey === 'failure-analysis' && c.key === 'category'
+        ? 'failureCategory'
+        : c.key === 'type'
+          ? reportKey === 'inspection-results'
+            ? 'inspectionType'
+            : 'workOrderType'
+          : ENUM_COLUMNS[c.key]
     if (kind && typeof v === 'string') return enumLabel(t, kind, v)
     if (c.key === 'onTime') return v === 'yes' ? t('common.yes') : t('common.no')
     return formatValue(c.type, v)
@@ -87,9 +108,9 @@ function ReportView({ reportKey }: { reportKey: ReportKey }) {
   async function exportCsv() {
     setExporting(true)
     try {
-      await reportsApi.csv(reportKey, { from, to, restaurantId })
+      await reportsApi.csv(reportKey, { from, to, restaurantId, ...filters })
     } catch (err) {
-      toast.error(describeError(err, t))
+      reportError(err, t)
     } finally {
       setExporting(false)
     }
@@ -151,6 +172,58 @@ function ReportView({ reportKey }: { reportKey: ReportKey }) {
             onChange={(v) => set('restaurantId', v)}
             options={(restaurants.data ?? []).map((r) => ({ value: r.id, label: r.name }))}
           />
+        )}
+        {woFilters && (
+          <>
+            <FilterSelect
+              label={t('wo.fieldPriority')}
+              value={params.get('priority') ?? undefined}
+              onChange={(v) => set('priority', v)}
+              options={PRIORITY.map((p) => ({ value: p, label: enumLabel(t, 'priority', p) }))}
+            />
+            <FilterSelect
+              label={t('wo.colStatus')}
+              value={params.get('status') ?? undefined}
+              onChange={(v) => set('status', v)}
+              options={WORK_ORDER_STATUS.map((p) => ({
+                value: p,
+                label: enumLabel(t, 'workOrderStatus', p),
+              }))}
+            />
+            <FilterSelect
+              label={t('wo.fieldType')}
+              value={params.get('type') ?? undefined}
+              onChange={(v) => set('type', v)}
+              options={WORK_ORDER_TYPE.map((p) => ({
+                value: p,
+                label: enumLabel(t, 'workOrderType', p),
+              }))}
+            />
+            <FilterSelect
+              label={t('reports.filterTechnician')}
+              value={params.get('userId') ?? undefined}
+              onChange={(v) => set('userId', v)}
+              options={(people.data ?? []).map((u) => ({ value: u.id, label: fullName(u) }))}
+            />
+            <FilterSelect
+              label={t('reports.filterTeam')}
+              value={params.get('teamId') ?? undefined}
+              onChange={(v) => set('teamId', v)}
+              options={(teams.data ?? []).map((x) => ({ value: x.id, label: x.name }))}
+            />
+            <FilterSelect
+              label={t('reports.filterVendor')}
+              value={params.get('vendorId') ?? undefined}
+              onChange={(v) => set('vendorId', v)}
+              options={(vendors.data ?? []).map((x) => ({ value: x.id, label: x.name }))}
+            />
+            <FilterSelect
+              label={t('reports.filterAsset')}
+              value={params.get('assetId') ?? undefined}
+              onChange={(v) => set('assetId', v)}
+              options={(assets.data?.data ?? []).map((x) => ({ value: x.id, label: x.name }))}
+            />
+          </>
         )}
         {snapshot && <p className="text-13 text-muted-foreground">{t('reports.snapshot')}</p>}
       </div>

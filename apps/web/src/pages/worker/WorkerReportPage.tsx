@@ -1,6 +1,6 @@
 import {
   UPLOAD_MAX_FILES,
-  WORK_ORDER_CATEGORY,
+  guessCategory,
   type AssetDetail,
   type Priority,
   type WorkerRestaurant,
@@ -21,6 +21,7 @@ import {
   FormMessage,
   FormRootError,
   SelectField,
+  TextField,
   TextareaField,
   applyServerErrors,
   useZodForm,
@@ -29,6 +30,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { toast } from '@/components/ui/toaster'
 import { BottomActionBar } from '@/components/worker/BottomActionBar'
+import { VoiceRecorder } from '@/components/work-orders/VoiceRecorder'
 import { WorkerPageHeader } from '@/components/worker/WorkerPageHeader'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAsset, useAssets } from '@/services/assets.service'
@@ -36,7 +38,6 @@ import { useWorkerRestaurants } from '@/services/worker.service'
 import { requestsApi } from '@/services/work-orders.service'
 import { cn } from '@/utils/cn'
 import { describeError } from '@/utils/errors'
-import { enumLabel } from '@/utils/i18n'
 import { prepareUploads } from '@/utils/image'
 
 const NONE = '__none__'
@@ -52,14 +53,15 @@ const URGENCY: Array<{
 
 const schema = z.object({
   restaurantId: z.string().min(1, 'validation.selectOption'),
-  category: z.string().min(1, 'validation.selectOption'),
+  /** Typed freely, e.g. "Fridge not cooling"; becomes the request title. */
+  problem: z.string().trim().min(3).max(120),
   assetId: z.string(),
   description: z.string().trim().min(5).max(2000),
   priority: z.enum(['MEDIUM', 'HIGH', 'CRITICAL']),
 })
 
 /**
- * "Report a problem": what kind → which equipment → what's wrong → photos.
+ * "Report a problem": what kind (typed) → which equipment → what's wrong → photos.
  * Opening it from an asset (or its QR code) fills in the equipment.
  */
 export function WorkerReportPage() {
@@ -86,6 +88,11 @@ export function WorkerReportPage() {
         <ReportForm
           restaurants={restaurants.data}
           asset={assetId && asset.data ? asset.data : null}
+          place={
+            params.get('locationId') && params.get('restaurantId')
+              ? { locationId: params.get('locationId')!, restaurantId: params.get('restaurantId')! }
+              : null
+          }
         />
       )}
     </>
@@ -95,7 +102,10 @@ export function WorkerReportPage() {
 function ReportForm({
   restaurants,
   asset,
+  place,
 }: {
+  /** Reported from a location QR code. */
+  place: { locationId: string; restaurantId: string } | null
   restaurants: WorkerRestaurant[]
   asset: AssetDetail | null
 }) {
@@ -107,8 +117,11 @@ function ReportForm({
 
   const form = useZodForm(schema, {
     defaultValues: {
-      restaurantId: asset?.restaurant.id ?? (restaurants.length === 1 ? restaurants[0]!.id : ''),
-      category: '',
+      restaurantId:
+        asset?.restaurant.id ??
+        place?.restaurantId ??
+        (restaurants.length === 1 ? restaurants[0]!.id : ''),
+      problem: '',
       assetId: asset?.id ?? NONE,
       description: '',
       priority: 'MEDIUM',
@@ -139,10 +152,11 @@ function ReportForm({
     try {
       const created = await requestsApi.create({
         restaurantId: v.restaurantId,
-        locationId: '',
+        locationId: place && place.restaurantId === v.restaurantId ? place.locationId : '',
         assetId: v.assetId === NONE ? '' : v.assetId,
-        category: v.category as (typeof WORK_ORDER_CATEGORY)[number],
-        title: '',
+        // Picked from the words used; an admin can change it when converting.
+        category: guessCategory(`${v.problem} ${v.description}`),
+        title: v.problem,
         description: v.description,
         priority: v.priority,
       })
@@ -178,36 +192,14 @@ function ReportForm({
           />
         )}
 
-        <FormField
+        <TextField
           control={form.control}
-          name="category"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel required>{t('report.what')}</FormLabel>
-              <FormControl>
-                <RadioGroupPrimitive.Root
-                  value={field.value}
-                  onValueChange={field.onChange}
-                  className="grid grid-cols-2 gap-2"
-                >
-                  {WORK_ORDER_CATEGORY.map((c) => (
-                    <RadioGroupPrimitive.Item
-                      key={c}
-                      value={c}
-                      className={cn(
-                        'min-h-12 rounded-lg border px-3 py-2 text-left text-sm font-medium',
-                        'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring',
-                        'data-[state=checked]:border-primary data-[state=checked]:bg-info-soft',
-                      )}
-                    >
-                      {enumLabel(t, 'workOrderCategory', c)}
-                    </RadioGroupPrimitive.Item>
-                  ))}
-                </RadioGroupPrimitive.Root>
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
+          name="problem"
+          label={t('report.what')}
+          placeholder={t('report.whatPlaceholder')}
+          required
+          maxLength={120}
+          autoComplete="off"
         />
 
         <SelectField
@@ -271,14 +263,25 @@ function ReportForm({
 
         <section className="grid gap-2" aria-labelledby="report-photos">
           <h2 id="report-photos" className="text-sm font-medium">
-            {t('report.photos')}{' '}
+            {t('report.photosAndVoice')}{' '}
             <span className="font-normal text-muted-foreground">({t('common.optional')})</span>
           </h2>
           {photos.length > 0 && (
             <ul className="grid grid-cols-3 gap-2">
               {photos.map((f, i) => (
-                <li key={`${f.name}-${i}`} className="relative aspect-square">
-                  {f.type.startsWith('image/') ? (
+                <li
+                  key={`${f.name}-${i}`}
+                  className={
+                    f.type.startsWith('audio/')
+                      ? 'relative col-span-3 flex items-center rounded-md border bg-muted/40 py-2 pr-11 pl-2'
+                      : 'relative aspect-square'
+                  }
+                >
+                  {f.type.startsWith('audio/') ? (
+                    <audio controls src={previews[i]} className="h-9 w-full">
+                      <track kind="captions" />
+                    </audio>
+                  ) : f.type.startsWith('image/') ? (
                     <img
                       src={previews[i]}
                       alt=""
@@ -320,6 +323,9 @@ function ReportForm({
             >
               <Camera aria-hidden /> {t('report.addPhoto')}
             </Button>
+          )}
+          {photos.length < UPLOAD_MAX_FILES && (
+            <VoiceRecorder onRecorded={(file) => setPhotos((p) => [...p, file])} />
           )}
         </section>
 

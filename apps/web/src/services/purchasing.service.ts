@@ -1,5 +1,14 @@
 import type {
   ApiResponse,
+  CreateStockCountInput,
+  InventorySettings,
+  LowStockOrderResult,
+  ReservePartInput,
+  SaveStockCountInput,
+  StockCountDetail,
+  StockCountListItem,
+  VendorContractDto,
+  VendorContractInput,
   PagedResponse,
   PartDetail,
   PartInput,
@@ -35,6 +44,12 @@ export const partsApi = {
   update: (id: string, input: PartInput) =>
     unwrap(http.put<ApiResponse<PartDetail>>(`/parts/${id}`, input)),
   archive: (id: string) => http.delete<void>(`/parts/${id}`),
+  byPublicId: (publicId: string, signal?: AbortSignal) =>
+    unwrap(
+      http.get<ApiResponse<PartDetail>>(`/parts/by-public/${encodeURIComponent(publicId)}`, {
+        signal,
+      }),
+    ),
   adjust: (id: string, input: StockAdjustmentInput) =>
     unwrap(http.post<ApiResponse<PartDetail>>(`/parts/${id}/adjust`, input)),
   settings: (id: string, input: StockSettingsInput) =>
@@ -48,6 +63,41 @@ export const workOrderPartsApi = {
     unwrap(
       http.delete<ApiResponse<WorkOrderDetail>>(`/work-orders/${workOrderId}/parts/${lineId}`),
     ),
+}
+
+export const reservationsApi = {
+  reserve: (workOrderId: string, input: ReservePartInput) =>
+    unwrap(
+      http.post<ApiResponse<WorkOrderDetail>>(`/work-orders/${workOrderId}/reservations`, input),
+    ),
+  release: (workOrderId: string, reservationId: string) =>
+    unwrap(
+      http.delete<ApiResponse<WorkOrderDetail>>(
+        `/work-orders/${workOrderId}/reservations/${reservationId}`,
+      ),
+    ),
+}
+
+export const stockCountsApi = {
+  list: (query: Record<string, QueryValue>, signal?: AbortSignal) =>
+    http.get<PagedResponse<StockCountListItem>>('/stock-counts', { query, signal }),
+  get: (id: string, signal?: AbortSignal) =>
+    unwrap(http.get<ApiResponse<StockCountDetail>>(`/stock-counts/${id}`, { signal })),
+  create: (input: CreateStockCountInput) =>
+    unwrap(http.post<ApiResponse<StockCountDetail>>('/stock-counts', input)),
+  save: (id: string, input: SaveStockCountInput) =>
+    unwrap(http.put<ApiResponse<StockCountDetail>>(`/stock-counts/${id}/lines`, input)),
+  complete: (id: string) =>
+    unwrap(http.post<ApiResponse<StockCountDetail>>(`/stock-counts/${id}/complete`)),
+  cancel: (id: string) =>
+    unwrap(http.post<ApiResponse<StockCountDetail>>(`/stock-counts/${id}/cancel`)),
+}
+
+export const inventorySettingsApi = {
+  get: (signal?: AbortSignal) =>
+    unwrap(http.get<ApiResponse<InventorySettings>>('/inventory/settings', { signal })),
+  update: (input: InventorySettings) =>
+    unwrap(http.put<ApiResponse<InventorySettings>>('/inventory/settings', input)),
 }
 
 export const vendorsApi = {
@@ -78,6 +128,16 @@ export const vendorsApi = {
     ),
   deleteInvoice: (id: string, invoiceId: string) =>
     http.delete<void>(`/vendors/${id}/invoices/${invoiceId}`),
+  contracts: (id: string, signal?: AbortSignal) =>
+    unwrap(http.get<ApiResponse<VendorContractDto[]>>(`/vendors/${id}/contracts`, { signal })),
+  addContract: (id: string, input: VendorContractInput) =>
+    unwrap(http.post<ApiResponse<VendorContractDto[]>>(`/vendors/${id}/contracts`, input)),
+  updateContract: (id: string, contractId: string, input: VendorContractInput) =>
+    unwrap(
+      http.put<ApiResponse<VendorContractDto[]>>(`/vendors/${id}/contracts/${contractId}`, input),
+    ),
+  archiveContract: (id: string, contractId: string) =>
+    unwrap(http.delete<ApiResponse<VendorContractDto[]>>(`/vendors/${id}/contracts/${contractId}`)),
 }
 
 const poAction =
@@ -100,6 +160,13 @@ export const poApi = {
   order: poAction('order'),
   receive: poAction<ReceivePoInput>('receive'),
   cancel: poAction<{ reason: string }>('cancel'),
+  /** Draft purchase requests for everything low at a restaurant. */
+  fromLowStock: (restaurantId: string) =>
+    unwrap(
+      http.post<ApiResponse<LowStockOrderResult>>('/purchase-orders/from-low-stock', {
+        restaurantId,
+      }),
+    ),
 }
 
 export const buyKeys = {
@@ -115,6 +182,11 @@ export const buyKeys = {
   pos: ['purchase-orders'] as const,
   poList: (q: Record<string, QueryValue>) => ['purchase-orders', 'list', q] as const,
   po: (id: string) => ['purchase-orders', 'detail', id] as const,
+  contracts: (id: string) => ['vendors', 'contracts', id] as const,
+  counts: ['stock-counts'] as const,
+  countList: (q: Record<string, QueryValue>) => ['stock-counts', 'list', q] as const,
+  count: (id: string) => ['stock-counts', 'detail', id] as const,
+  inventorySettings: ['inventory-settings'] as const,
 }
 
 export function useParts(query: Record<string, QueryValue>, enabled = true) {
@@ -182,5 +254,35 @@ export function usePurchaseOrder(id: string | undefined) {
     queryKey: buyKeys.po(id ?? ''),
     queryFn: ({ signal }) => poApi.get(id!, signal),
     enabled: !!id,
+  })
+}
+
+export function useVendorContracts(id: string) {
+  return useQuery({
+    queryKey: buyKeys.contracts(id),
+    queryFn: ({ signal }) => vendorsApi.contracts(id, signal),
+  })
+}
+
+export function useStockCounts(query: Record<string, QueryValue>) {
+  return useQuery({
+    queryKey: buyKeys.countList(query),
+    queryFn: ({ signal }) => stockCountsApi.list(query, signal),
+    placeholderData: keepPreviousData,
+  })
+}
+
+export function useStockCount(id: string) {
+  return useQuery({
+    queryKey: buyKeys.count(id),
+    queryFn: ({ signal }) => stockCountsApi.get(id, signal),
+  })
+}
+
+export function useInventorySettings(enabled = true) {
+  return useQuery({
+    queryKey: buyKeys.inventorySettings,
+    queryFn: ({ signal }) => inventorySettingsApi.get(signal),
+    enabled,
   })
 }

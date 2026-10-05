@@ -11,6 +11,8 @@ import {
 } from '@maintainx/shared'
 import type { Prisma } from '@prisma/client'
 import type { Request } from 'express'
+import { attachmentsOf, listAttachments, saveAttachments } from '../../core/attachments.js'
+import { runAutomations } from '../../core/automations.js'
 import { recordAudit } from '../../core/audit.js'
 import { canAccessRestaurant, hasPermission, restaurantScope } from '../../core/authz.js'
 import {
@@ -18,6 +20,7 @@ import {
   copyStepsToInspection,
   failureDetails,
   toChecklistDto,
+  stepPhotoCounts,
   unanswered,
 } from '../../core/checklist.js'
 import { nextCode } from '../../core/counters.js'
@@ -134,10 +137,18 @@ export async function getInspection(auth: AuthContext, id: string): Promise<Insp
   })
   const mine = r.performedBy.id === auth.userId
   const open = r.status === 'IN_PROGRESS'
+  const files = await listAttachments(
+    items.map((i) => ({ type: 'INSPECTION_ITEM' as const, id: i.id })),
+  )
   return {
     ...toListItem(r),
     notes: r.notes,
-    items: items.map((i) => toChecklistDto({ ...i, completedBy: mine ? r.performedBy : null })),
+    items: items.map((i) =>
+      toChecklistDto(
+        { ...i, completedBy: mine ? r.performedBy : null },
+        attachmentsOf(files, 'INSPECTION_ITEM', i.id),
+      ),
+    ),
     can: { answer: open && mine, submit: open && mine },
   }
 }
@@ -218,7 +229,7 @@ export async function answerInspectionItem(
   }
   const item = detail.items.find((i) => i.id === itemId)
   if (!item) throw new NotFoundError('Inspection step')
-  const v = evaluateAnswer(item, input)
+  const v = evaluateAnswer(item, input, item.attachments.length > 0)
   await prisma.inspectionItem.update({
     where: { id: itemId },
     data: {
@@ -244,7 +255,11 @@ export async function submitInspection(
     throw new ConflictError('This inspection has been submitted.', ERROR_CODES.INSPECTION_SUBMITTED)
   }
   const items = await prisma.inspectionItem.findMany({ where: { inspectionId: id } })
-  if (unanswered(items) > 0) {
+  const photos = await stepPhotoCounts(
+    'INSPECTION_ITEM',
+    items.map((i) => i.id),
+  )
+  if (unanswered(items, photos) > 0) {
     throw new AppError(409, ERROR_CODES.CHECKLIST_INCOMPLETE, 'Finish all required steps first.')
   }
   const count = (res: string) => items.filter((i) => i.result === res).length
@@ -321,7 +336,50 @@ export async function submitInspection(
       },
       { exclude: auth.userId },
     )
+    await runAutomations('INSPECTION_FAILED', {
+      organizationId: auth.organizationId,
+      restaurantId: r.restaurant.id,
+      inspectionId: id,
+      assetId: r.asset?.id ?? null,
+      label: `${r.code} · ${r.template.name}`,
+    })
   }
+  return getInspection(auth, id)
+}
+
+/** A photo or signature for one inspection step (only the inspector, while open). */
+export async function uploadInspectionStepAttachment(
+  auth: AuthContext,
+  id: string,
+  itemId: string,
+  files: Express.Multer.File[] | undefined,
+  req: Request,
+): Promise<InspectionDetail> {
+  const detail = await getInspection(auth, id)
+  if (!detail.can.answer) throw new ForbiddenError()
+  const item = detail.items.find((i) => i.id === itemId)
+  if (!item) throw new NotFoundError('Inspection step')
+  if (item.inputType === 'SIGNATURE')
+    await prisma.attachment.deleteMany({ where: { ownerType: 'INSPECTION_ITEM', ownerId: itemId } })
+  const ids = await saveAttachments(files, { type: 'INSPECTION_ITEM', id: itemId }, auth.userId)
+  if ((item.inputType === 'PHOTO' || item.inputType === 'SIGNATURE') && item.result !== 'PASS') {
+    await prisma.inspectionItem.update({
+      where: { id: itemId },
+      data: { result: 'PASS', completedAt: new Date() },
+    })
+  }
+  await recordAudit(
+    {
+      organizationId: auth.organizationId,
+      restaurantId: detail.restaurant.id,
+      actorId: auth.userId,
+      action: 'inspection.step_photo_added',
+      entityType: 'INSPECTION',
+      entityId: id,
+      metadata: { attachmentIds: ids, step: item.title },
+    },
+    req,
+  )
   return getInspection(auth, id)
 }
 

@@ -1,4 +1,4 @@
-import type { WorkOrderDetail } from '@maintainx/shared'
+import { PART_CONDITION, type PartCondition, type WorkOrderDetail } from '@maintainx/shared'
 import { Plus, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -15,8 +15,10 @@ import {
 import { toast } from '@/components/ui/toaster'
 import { useParts, workOrderPartsApi } from '@/services/purchasing.service'
 import { useApplyWorkOrder } from '@/services/work-orders.service'
-import { describeError } from '@/utils/errors'
+import { reportError } from '@/utils/errors'
 import { formatCurrency, formatNumber } from '@/utils/format'
+import { enumLabel } from '@/utils/i18n'
+import { WorkOrderReservations } from './WorkOrderReservations'
 
 /**
  * Parts used on a job. Adding a part takes it out of the restaurant's stock
@@ -28,6 +30,7 @@ export function WorkOrderParts({ w, large = false }: { w: WorkOrderDetail; large
   const [adding, setAdding] = useState(false)
   const [partId, setPartId] = useState('')
   const [qty, setQty] = useState('1')
+  const [condition, setCondition] = useState<PartCondition>('NEW')
   const [busy, setBusy] = useState<string | null>(null)
   const parts = useParts({ restaurantId: w.restaurant.id, pageSize: 100, sort: 'name:asc' }, adding)
   const selected = parts.data?.data.find((p) => p.id === partId)
@@ -38,13 +41,14 @@ export function WorkOrderParts({ w, large = false }: { w: WorkOrderDetail; large
     if (!partId || !(n > 0)) return
     setBusy('add')
     try {
-      await apply(await workOrderPartsApi.use(w.id, { partId, quantity: n }))
+      await apply(await workOrderPartsApi.use(w.id, { partId, quantity: n, condition }))
       toast.success(t('woParts.added'))
       setPartId('')
       setQty('1')
+      setCondition('NEW')
       setAdding(false)
     } catch (err) {
-      toast.error(describeError(err, t))
+      reportError(err, t)
     } finally {
       setBusy(null)
     }
@@ -56,7 +60,7 @@ export function WorkOrderParts({ w, large = false }: { w: WorkOrderDetail; large
       await apply(await workOrderPartsApi.remove(w.id, lineId))
       toast.success(t('woParts.returned'))
     } catch (err) {
-      toast.error(describeError(err, t))
+      reportError(err, t)
     } finally {
       setBusy(null)
     }
@@ -65,6 +69,7 @@ export function WorkOrderParts({ w, large = false }: { w: WorkOrderDetail; large
   const h = large ? 'h-12 text-base' : undefined
   return (
     <div className="grid gap-3">
+      <WorkOrderReservations w={w} />
       {w.parts.length === 0 ? (
         <p className="text-13 text-muted-foreground">{t('woParts.none')}</p>
       ) : (
@@ -75,6 +80,7 @@ export function WorkOrderParts({ w, large = false }: { w: WorkOrderDetail; large
                 <span className="block text-sm font-medium">{p.part.name}</span>
                 <span className="block text-xs text-muted-foreground tabular">
                   {p.part.partNumber}
+                  {p.condition !== 'NEW' && ` · ${enumLabel(t, 'partCondition', p.condition)}`}
                   {p.unitCost !== null && ` · ${formatCurrency(p.unitCost * p.qtyUsed)}`}
                 </span>
               </span>
@@ -140,6 +146,31 @@ export function WorkOrderParts({ w, large = false }: { w: WorkOrderDetail; large
                   className={`max-w-32 tabular ${h ?? ''}`}
                 />
                 {selected && <span className="text-sm text-muted-foreground">{selected.unit}</span>}
+              </div>
+            </div>
+            <div className="grid gap-1.5">
+              <Label id={`wo-cond-${w.id}`}>{t('woParts.condition')}</Label>
+              <div
+                role="radiogroup"
+                aria-labelledby={`wo-cond-${w.id}`}
+                className="flex flex-wrap gap-2"
+              >
+                {PART_CONDITION.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    role="radio"
+                    aria-checked={condition === c}
+                    onClick={() => setCondition(c)}
+                    className={
+                      condition === c
+                        ? 'h-10 rounded-full border border-primary bg-info-soft px-4 text-sm font-medium text-info-fg'
+                        : 'h-10 rounded-full border px-4 text-sm hover:bg-muted/60'
+                    }
+                  >
+                    {enumLabel(t, 'partCondition', c)}
+                  </button>
+                ))}
               </div>
             </div>
             <div className="flex gap-2">

@@ -25,6 +25,8 @@ const R1: RestaurantDto = {
   opensAt: '09:00',
   closesAt: '23:00',
   status: 'ACTIVE',
+  manager: null,
+  contactName: null,
   createdAt: new Date().toISOString(),
 }
 
@@ -38,6 +40,8 @@ function setup(path: string) {
     {
       id: 'l1',
       restaurantId: R1.id,
+      parentId: null,
+      publicId: 'LOCQR1234567',
       name: 'Storage',
       type: 'STORAGE',
       description: null,
@@ -116,7 +120,7 @@ describe('restaurant page', () => {
 
     expect(await screen.findByText('Bar counter')).toBeInTheDocument()
     expect(posted).toEqual([
-      { restaurantId: R1.id, name: 'Bar counter', type: 'BAR', description: '' },
+      { restaurantId: R1.id, parentId: '', name: 'Bar counter', type: 'BAR', description: '' },
     ])
     expect(router.state.location.search).toBe('?tab=locations')
   })

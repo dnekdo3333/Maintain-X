@@ -65,6 +65,8 @@ const EMPTY_USER: CreateUserInput = {
   email: '',
   username: '',
   phone: '',
+  jobTitle: '',
+  hourlyRate: '',
   roleId: '',
   restaurantIds: [],
   password: '',
@@ -143,6 +145,25 @@ function CreateUserForm({
             />
           </div>
         </fieldset>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <TextField
+            control={form.control}
+            name="jobTitle"
+            label={t('users.jobTitle')}
+            placeholder={t('users.jobTitlePlaceholder')}
+            optional
+          />
+          <TextField
+            control={form.control}
+            name="hourlyRate"
+            label={t('users.hourlyRate')}
+            description={t('users.hourlyRateHint')}
+            inputMode="decimal"
+            placeholder="₹"
+            optional
+          />
+        </div>
+
         <UserAccessFields control={form.control} />
         <PasswordField
           control={form.control}

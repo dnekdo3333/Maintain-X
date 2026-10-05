@@ -7,6 +7,7 @@ import {
   UPLOAD_MAX_IMAGE_MB,
   type AttachmentDto,
   type AttachmentOwnerType,
+  type EvidenceStage,
 } from '@maintainx/shared'
 import type { Prisma } from '@prisma/client'
 import type { RequestHandler } from 'express'
@@ -46,6 +47,12 @@ const EXTENSION: Record<string, string> = {
   'video/mp4': 'mp4',
   'video/quicktime': 'mov',
   'video/webm': 'webm',
+  'audio/webm': 'weba',
+  'audio/ogg': 'ogg',
+  'audio/mp4': 'm4a',
+  'audio/x-m4a': 'm4a',
+  'audio/mpeg': 'mp3',
+  'audio/aac': 'aac',
 }
 
 /** Removes path parts and odd characters; keeps something readable for downloads. */
@@ -67,6 +74,8 @@ export async function saveAttachments(
   owner: { type: AttachmentOwnerType; id: string },
   uploadedById: string,
   db: Prisma.TransactionClient | typeof prisma = prisma,
+  /** Evidence stage and caption for work-order photos. */
+  meta: { stage?: EvidenceStage | null; caption?: string | null } = {},
 ): Promise<string[]> {
   if (!files || files.length === 0) throw new ValidationError({ files: ['validation.required'] })
 
@@ -77,17 +86,23 @@ export async function saveAttachments(
         throw new AppError(
           415,
           ERROR_CODES.FILE_TYPE_NOT_ALLOWED,
-          'Only photos and videos can be uploaded.',
+          'Only photos, videos and voice notes can be uploaded.',
         )
       }
       const isImage = (UPLOAD_IMAGE_TYPES as readonly string[]).includes(detected.mime)
       if (isImage && f.size > UPLOAD_MAX_IMAGE_MB * MB) {
         throw new AppError(413, ERROR_CODES.FILE_TOO_LARGE, 'This photo is too large.')
       }
+      // webm/mp4 containers look the same with or without a picture; a voice
+      // note recorded in the browser says so in its declared type.
+      const audio =
+        detected.mime.startsWith('audio/') ||
+        (f.mimetype.startsWith('audio/') && /^video\/(webm|mp4)$/.test(detected.mime))
+      const mime = audio ? detected.mime.replace(/^video\//, 'audio/') : detected.mime
       return {
         file: f,
-        mime: detected.mime,
-        kind: isImage ? ('PHOTO' as const) : ('VIDEO' as const),
+        mime,
+        kind: isImage ? ('PHOTO' as const) : audio ? ('AUDIO' as const) : ('VIDEO' as const),
       }
     }),
   )
@@ -108,6 +123,8 @@ export async function saveAttachments(
         fileName: safeFileName(c.file.originalname, ext),
         mimeType: c.mime,
         sizeBytes: c.file.size,
+        stage: meta.stage ?? null,
+        caption: meta.caption || null,
         uploadedById,
       },
       select: { id: true },
@@ -132,6 +149,8 @@ export async function listAttachments(
     const dto: AttachmentDto = {
       id: r.id,
       kind: r.kind,
+      stage: r.stage,
+      caption: r.caption,
       fileName: r.fileName,
       mimeType: r.mimeType,
       sizeBytes: r.sizeBytes,

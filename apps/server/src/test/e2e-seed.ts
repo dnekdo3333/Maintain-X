@@ -33,7 +33,53 @@ async function main() {
   })
   await prisma.user.update({
     where: { id: worker.id },
-    data: { firstName: 'Ravi', lastName: 'Kumar' },
+    data: { firstName: 'Ravi', lastName: 'Kumar', hourlyRate: 300 },
+  })
+  const supervisor = await fx.createUser({
+    role: 'SUPERVISOR',
+    username: 'meera',
+    restaurants: fx.restaurantIds,
+  })
+  await prisma.user.update({
+    where: { id: supervisor.id },
+    data: { firstName: 'Meera', lastName: 'Patel' },
+  })
+
+  // The CMMS scenario: a refrigerator with a known QR code and a spare part in stock.
+  const fridge = await prisma.assetCategory.findFirstOrThrow({
+    where: { organizationId: fx.orgId, name: 'Refrigerator' },
+  })
+  await prisma.asset.create({
+    data: {
+      organizationId: fx.orgId,
+      restaurantId: fx.restaurantIds[0]!,
+      categoryId: fridge.id,
+      publicId: 'FridgeQr0001',
+      assetCode: 'AST-0001',
+      name: 'Reach-in refrigerator',
+      criticality: 'HIGH',
+    },
+  })
+  await prisma.counter.upsert({
+    where: { organizationId_key: { organizationId: fx.orgId, key: 'AST' } },
+    update: { value: 1 },
+    create: { organizationId: fx.orgId, key: 'AST', value: 1 },
+  })
+  const relay = await prisma.part.create({
+    data: {
+      organizationId: fx.orgId,
+      name: 'Compressor start relay',
+      partNumber: 'RLY-100',
+      unitCost: 450,
+    },
+  })
+  await prisma.inventory.create({
+    data: {
+      organizationId: fx.orgId,
+      partId: relay.id,
+      restaurantId: fx.restaurantIds[0]!,
+      quantity: 10,
+    },
   })
   console.log('e2e database seeded')
 }

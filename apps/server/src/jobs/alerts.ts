@@ -1,9 +1,11 @@
 import {
+  CONTRACT_EXPIRING_DAYS,
   DOCUMENT_EXPIRING_DAYS,
   WARRANTY_EXPIRING_DAYS,
   WORK_ORDER_ACTIVE_STATUSES,
   type NotificationType,
 } from '@maintainx/shared'
+import { runAutomations } from '../core/automations.js'
 import { notify, usersWithPermission } from '../core/notify.js'
 import { prisma } from '../core/prisma.js'
 
@@ -51,6 +53,9 @@ export async function overdueWorkOrderAlerts(now = new Date()): Promise<number> 
       organizationId: true,
       restaurantId: true,
       priority: true,
+      category: true,
+      type: true,
+      assetId: true,
       assignedUserId: true,
       assignedTeamId: true,
     },
@@ -91,6 +96,74 @@ export async function overdueWorkOrderAlerts(now = new Date()): Promise<number> 
       admins.filter((a) => !doers.includes(a)),
       { ...base, actionUrl: `/work-orders/${w.id}` },
     )
+    await runAutomations('WORK_ORDER_OVERDUE', {
+      organizationId: w.organizationId,
+      restaurantId: w.restaurantId,
+      workOrderId: w.id,
+      assetId: w.assetId,
+      priority: w.priority,
+      category: w.category,
+      type: w.type,
+      label: `${w.code} · ${w.title}`,
+    })
+    count++
+  }
+  return count
+}
+
+/** Hours before the due date a "due soon" reminder goes to whoever does the job. */
+export const DUE_SOON_HOURS = 24
+
+/** Assigned work due within a day: one reminder to the assignee (or team). */
+export async function dueSoonAlerts(now = new Date()): Promise<number> {
+  const rows = await prisma.workOrder.findMany({
+    where: {
+      archivedAt: null,
+      status: { in: ['ASSIGNED', 'SCHEDULED', 'IN_PROGRESS', 'ON_HOLD', 'REOPENED'] },
+      dueDate: { gt: now, lte: new Date(now.getTime() + DUE_SOON_HOURS * 3_600_000) },
+    },
+    select: {
+      id: true,
+      code: true,
+      title: true,
+      organizationId: true,
+      priority: true,
+      dueDate: true,
+      assignedUserId: true,
+      assignedTeamId: true,
+    },
+    take: 500,
+  })
+  const sent = await alreadySent(
+    'DUE_SOON',
+    'WORK_ORDER',
+    rows.map((r) => r.id),
+    30,
+    now,
+  )
+  let count = 0
+  for (const w of rows.filter((r) => !sent.has(r.id))) {
+    const doers = w.assignedUserId
+      ? [w.assignedUserId]
+      : w.assignedTeamId
+        ? (
+            await prisma.teamMember.findMany({
+              where: { teamId: w.assignedTeamId },
+              select: { userId: true },
+            })
+          ).map((m) => m.userId)
+        : []
+    if (doers.length === 0) continue
+    await notify(doers, {
+      organizationId: w.organizationId,
+      type: 'DUE_SOON',
+      title: `${w.code} · ${w.title}`,
+      body: `Due ${w.dueDate!.toISOString()}`,
+      entityType: 'WORK_ORDER',
+      entityId: w.id,
+      actionUrl: `/w/tasks/${w.id}`,
+      priority: w.priority,
+    })
     count++
   }
   return count
@@ -193,10 +266,68 @@ export async function documentExpiryAlerts(now = new Date()): Promise<number> {
   return count
 }
 
+/** Vendor contracts ending soon: whoever manages vendors at that restaurant (or the Super Admins). */
+export async function contractExpiryAlerts(now = new Date()): Promise<number> {
+  const today = new Date(now.toISOString().slice(0, 10) + 'T00:00:00Z')
+  const rows = await prisma.vendorContract.findMany({
+    where: {
+      archivedAt: null,
+      vendor: { archivedAt: null },
+      endDate: { gte: today, lte: new Date(today.getTime() + CONTRACT_EXPIRING_DAYS * DAY) },
+    },
+    select: {
+      id: true,
+      title: true,
+      organizationId: true,
+      restaurantId: true,
+      endDate: true,
+      vendor: { select: { id: true, name: true } },
+    },
+    take: 500,
+  })
+  const sent = await alreadySent(
+    'CONTRACT_EXPIRY',
+    'VENDOR_CONTRACT',
+    rows.map((r) => r.id),
+    CONTRACT_EXPIRING_DAYS + 5,
+    now,
+  )
+  let count = 0
+  for (const c of rows.filter((r) => !sent.has(r.id))) {
+    const recipients = c.restaurantId
+      ? await usersWithPermission(c.organizationId, c.restaurantId, 'vendors:edit')
+      : (
+          await prisma.user.findMany({
+            where: {
+              organizationId: c.organizationId,
+              archivedAt: null,
+              status: 'ACTIVE',
+              userRoles: { some: { role: { systemKey: 'SUPER_ADMIN' } } },
+            },
+            select: { id: true },
+          })
+        ).map((u) => u.id)
+    await notify(recipients, {
+      organizationId: c.organizationId,
+      type: 'CONTRACT_EXPIRY',
+      title: `${c.vendor.name}: ${c.title}`,
+      body: `Contract ends ${c.endDate!.toISOString().slice(0, 10)}`,
+      entityType: 'VENDOR_CONTRACT',
+      entityId: c.id,
+      actionUrl: `/vendors/${c.vendor.id}`,
+      priority: 'HIGH',
+    })
+    count++
+  }
+  return count
+}
+
 export async function runAlerts(now = new Date()) {
   return {
     overdue: await overdueWorkOrderAlerts(now),
+    dueSoon: await dueSoonAlerts(now),
     warranty: await warrantyAlerts(now),
     documents: await documentExpiryAlerts(now),
+    contracts: await contractExpiryAlerts(now),
   }
 }

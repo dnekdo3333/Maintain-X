@@ -57,8 +57,8 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { toast } from '@/components/ui/toaster'
 import { adminKeys, useInvalidatingMutation, useUser } from '@/hooks/useAdminQueries'
 import { usersApi } from '@/services/admin.service'
-import { describeError } from '@/utils/errors'
-import { formatDate, formatRelative } from '@/utils/format'
+import { describeError, reportError } from '@/utils/errors'
+import { formatCurrency, formatDate, formatRelative } from '@/utils/format'
 import { TempPasswordDialog, type TempPassword } from './TempPasswordDialog'
 
 type Confirm = 'disable' | 'reset' | 'archive' | null
@@ -73,6 +73,8 @@ function ProfileForm({ user, onDone }: { user: UserDetail; onDone: () => void })
       email: user.email ?? '',
       username: user.username ?? '',
       phone: user.phone ?? '',
+      jobTitle: user.jobTitle ?? '',
+      hourlyRate: user.hourlyRate ?? '',
     },
   })
   const save = useInvalidatingMutation(
@@ -112,6 +114,24 @@ function ProfileForm({ user, onDone }: { user: UserDetail; onDone: () => void })
             autoCapitalize="none"
           />
           <TextField control={form.control} name="phone" type="tel" label={t('users.phone')} />
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <TextField
+            control={form.control}
+            name="jobTitle"
+            label={t('users.jobTitle')}
+            placeholder={t('users.jobTitlePlaceholder')}
+            optional
+          />
+          <TextField
+            control={form.control}
+            name="hourlyRate"
+            label={t('users.hourlyRate')}
+            description={t('users.hourlyRateHint')}
+            inputMode="decimal"
+            placeholder="₹"
+            optional
+          />
         </div>
         <FormActions>
           <Button variant="secondary" onClick={onDone} disabled={isSubmitting}>
@@ -190,7 +210,7 @@ export function UserDetailPage() {
       await fn()
       if (success) toast.success(success)
     } catch (err) {
-      toast.error(describeError(err, t))
+      reportError(err, t)
       throw err
     }
   }
@@ -308,6 +328,13 @@ export function UserDetailPage() {
                 { label: t('users.email'), value: user.email },
                 { label: t('users.username'), value: user.username },
                 { label: t('users.phone'), value: user.phone },
+                { label: t('users.jobTitle'), value: user.jobTitle },
+                {
+                  label: t('users.hourlyRate'),
+                  value:
+                    user.hourlyRate &&
+                    t('users.perHour', { amount: formatCurrency(user.hourlyRate) }),
+                },
                 {
                   label: t('users.colLastLogin'),
                   value: user.lastLoginAt ? formatRelative(user.lastLoginAt) : t('common.never'),

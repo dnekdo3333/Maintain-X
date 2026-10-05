@@ -55,7 +55,16 @@ const CASES: Case[] = [
   ['get', '/work-orders', ['work_orders:view']],
   ['post', '/work-orders', ['work_orders:create']],
   ['post', `/work-orders/${ZERO}/assign`, ['work_orders:assign']],
-  ['post', `/work-orders/${ZERO}/close`, ['work_orders:approve']],
+  ['post', `/work-orders/${ZERO}/verify`, ['work_orders:approve']],
+  ['post', `/work-orders/${ZERO}/reject`, ['work_orders:approve']],
+  ['post', `/work-orders/${ZERO}/cancel`, ['work_orders:close']],
+  ['post', `/work-orders/${ZERO}/complete`, ['work_orders:complete']],
+  ['post', `/work-orders/${ZERO}/costs`, ['work_orders:edit']],
+  ['get', `/work-orders/workload?restaurantId=${ZERO}`, ['work_orders:assign']],
+  ['post', `/requests/${ZERO}/approve`, ['requests:approve']],
+  ['post', `/assets/${ZERO}/transfer`, ['assets:edit']],
+  ['get', `/restaurants/${ZERO}/stats`, ['restaurants:view']],
+  ['delete', `/restaurants/${ZERO}`, 'superAdmin'],
   ['get', '/pm-schedules', ['maintenance:view']],
   ['post', '/pm-schedules', ['maintenance:create']],
   ['get', '/procedures', ['procedures:view']],
@@ -77,7 +86,7 @@ const CASES: Case[] = [
   ['get', '/audit-logs', ['audit_logs:view']],
   ['get', '/audit-logs/csv', ['audit_logs:view', 'audit_logs:export']],
   ['get', '/notifications', []],
-  ['get', '/me/home', []],
+  ['get', '/me/home', ['work_orders:view']],
 ]
 
 /** request(app)[method](…) without a multi-line computed member access. */
@@ -95,7 +104,7 @@ function send(method: Case[0], path: string) {
 
 function allowed(role: SystemRole, needs: Case[2], adminKind = false): boolean {
   if (role === SYSTEM_ROLES.SUPER_ADMIN) return true
-  if (adminKind && role === SYSTEM_ROLES.WORKER) return false
+  if (adminKind && (role === SYSTEM_ROLES.WORKER || role === SYSTEM_ROLES.REQUESTER)) return false
   if (needs === 'superAdmin') return false
   const granted = new Set<string>(DEFAULT_ROLE_PERMISSIONS[role])
   return needs.every((p) => granted.has(p))

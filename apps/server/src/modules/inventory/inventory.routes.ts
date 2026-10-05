@@ -6,6 +6,7 @@ import {
   stockSettingsSchema,
 } from '@maintainx/shared'
 import { Router } from 'express'
+import { z } from 'zod'
 import { requirePermission } from '../../core/authz.js'
 import { sendCreated, sendData } from '../../core/http.js'
 import { parseBody, parseParams, parseQuery } from '../../core/validate.js'
@@ -23,6 +24,14 @@ inventoryRouter.get('/parts', view, async (req, res) => {
 
 inventoryRouter.get('/parts/categories', view, async (req, res) => {
   sendData(res, await service.partCategories(getAuth(req)))
+})
+
+inventoryRouter.get('/parts/by-public/:publicId', view, async (req, res) => {
+  const { publicId } = parseParams(
+    z.object({ publicId: z.string().regex(/^[0-9A-Za-z]{8,40}$/) }),
+    req,
+  )
+  sendData(res, await service.getPartByPublicId(getAuth(req), publicId))
 })
 
 inventoryRouter.get('/parts/:id', view, async (req, res) => {

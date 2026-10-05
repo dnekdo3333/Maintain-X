@@ -83,9 +83,17 @@ export function TaskCard({
     className,
   )
 
-  if (!to) return <div className={classes}>{body}</div>
+  // Hooks for mobile.css (status stripe, entrance and press effects).
+  const hooks = { 'data-m': 'task-card', 'data-priority': priority, 'data-done': done || undefined }
+  if (!to)
+    return (
+      <div {...hooks} className={classes}>
+        {body}
+      </div>
+    )
   return (
     <Link
+      {...hooks}
       to={to}
       className={cn(
         classes,

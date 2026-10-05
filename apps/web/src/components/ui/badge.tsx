@@ -39,7 +39,12 @@ export interface BadgeProps extends ComponentProps<'span'>, VariantProps<typeof 
 
 export function Badge({ className, tone, dot = false, children, ...props }: BadgeProps) {
   return (
-    <span data-slot="badge" className={cn(badgeVariants({ tone }), className)} {...props}>
+    <span
+      data-slot="badge"
+      data-tone={tone ?? 'neutral'}
+      className={cn(badgeVariants({ tone }), className)}
+      {...props}
+    >
       {dot && (
         <span
           aria-hidden

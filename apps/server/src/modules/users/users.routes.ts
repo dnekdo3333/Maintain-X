@@ -38,8 +38,14 @@ usersRouter.get('/users/options', async (req, res) => {
   ) {
     throw new ForbiddenError()
   }
-  const { restaurantId } = parseQuery(z.object({ restaurantId: z.uuid().optional() }), req)
-  sendData(res, await service.listUserOptions(auth, restaurantId))
+  const { restaurantId, permission } = parseQuery(
+    z.object({
+      restaurantId: z.uuid().optional(),
+      permission: z.enum(['work_orders:approve', 'work_orders:complete']).optional(),
+    }),
+    req,
+  )
+  sendData(res, await service.listUserOptions(auth, restaurantId, permission))
 })
 
 usersRouter.get('/users/:id', requirePermission('users:view'), async (req, res) => {

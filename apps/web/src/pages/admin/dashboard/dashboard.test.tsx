@@ -14,32 +14,78 @@ import { installFakeAuthApi, json, makeUser } from '@/test/fake-auth-api'
 const R1 = { id: '11111111-1111-4111-8111-111111111111', code: 'R1', name: 'Restaurant 1' }
 const R2 = { id: '22222222-2222-4222-8222-222222222222', code: 'R2', name: 'Restaurant 2' }
 
+const ZERO_COUNTS: DashboardSummary['counts'] = {
+  restaurants: 2,
+  activeRestaurants: 2,
+  users: 3,
+  activeWorkers: 2,
+  open: 0,
+  overdue: 0,
+  inProgress: 0,
+  pendingVerification: 0,
+  completed30d: 0,
+  critical: 0,
+  lowStock: 0,
+  openRequests: 0,
+  assetsDown: 0,
+  criticalAssetsDown: 0,
+  failedInspections: 0,
+}
+
+const row = (
+  r: { id: string; code: string; name: string },
+  open = 0,
+  overdue = 0,
+  critical = 0,
+) => ({
+  ...r,
+  open,
+  overdue,
+  critical,
+  completed: 0,
+  assetsDown: 0,
+  cost: 0,
+  pmCompliance: null,
+})
+
 const EMPTY: DashboardSummary = {
   generatedAt: new Date().toISOString(),
-  counts: {
-    restaurants: 2,
-    open: 0,
-    overdue: 0,
+  period: { from: '2026-09-05', to: '2026-10-04' },
+  counts: ZERO_COUNTS,
+  today: {
+    newRequests: 0,
+    created: 0,
     inProgress: 0,
-    completed30d: 0,
+    completed: 0,
+    overdue: 0,
     critical: 0,
-    lowStock: 0,
+    pmDue: 0,
+    failedInspections: 0,
   },
   pmCompliance: null,
+  mix: { REACTIVE: 0, PREVENTIVE: 0, INSPECTION_FOLLOWUP: 0 },
+  cost: { parts: 0, labour: 0, vendor: 0, other: 0, total: 0 },
+  downtimeHours: 0,
+  mttrHours: null,
+  onTimeRate: null,
+  trend: [
+    { date: '2026-10-03', created: 0, completed: 0 },
+    { date: '2026-10-04', created: 0, completed: 0 },
+  ],
+  byPriority: { LOW: 0, MEDIUM: 0, HIGH: 0, CRITICAL: 0 },
+  byStatus: [],
+  workload: [],
   todaysTasks: [],
   criticalIssues: [],
   overdueTasks: [],
   recentActivity: [],
-  restaurants: [
-    { ...R1, open: 0, overdue: 0, critical: 0 },
-    { ...R2, open: 0, overdue: 0, critical: 0 },
-  ],
+  restaurants: [row(R1), row(R2)],
 }
 
 const BUSY: DashboardSummary = {
   ...EMPTY,
   counts: {
-    restaurants: 2,
+    ...ZERO_COUNTS,
     open: 12,
     overdue: 3,
     inProgress: 4,
@@ -70,10 +116,7 @@ const BUSY: DashboardSummary = {
       createdAt: new Date().toISOString(),
     },
   ],
-  restaurants: [
-    { ...R1, open: 9, overdue: 3, critical: 1 },
-    { ...R2, open: 3, overdue: 0, critical: 0 },
-  ],
+  restaurants: [row(R1, 9, 3, 1), row(R2, 3)],
 }
 
 const admin = makeUser({ permissions: [...ADMIN_DEFAULT_PERMISSIONS], restaurants: [R1, R2] })

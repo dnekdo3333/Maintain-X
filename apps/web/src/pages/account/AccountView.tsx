@@ -19,10 +19,9 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
-import { toast } from '@/components/ui/toaster'
 import { useAuth, useCurrentUser } from '@/contexts/AuthContext'
 import { cn } from '@/utils/cn'
-import { describeError } from '@/utils/errors'
+import { reportError } from '@/utils/errors'
 
 interface AccountViewProps {
   /** Worker app: stacked full-width layout and a bottom sheet for the password form. */
@@ -167,7 +166,7 @@ export function AccountView({ compact = false }: AccountViewProps) {
           try {
             await logoutEverywhere()
           } catch (err) {
-            toast.error(describeError(err, t))
+            reportError(err, t)
             throw err
           }
         }}

@@ -1,12 +1,16 @@
 import { PART_SORT_FIELDS, type PartListItem } from '@maintainx/shared'
 import { createColumnHelper } from '@tanstack/react-table'
-import { AlertTriangle, Boxes, Plus } from 'lucide-react'
+import { AlertTriangle, Boxes, PackageCheck, Plus, Settings2, ShoppingCart } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate } from 'react-router'
+import { Link, useNavigate } from 'react-router'
 import { Can } from '@/components/common/Can'
 import { EmptyState } from '@/components/common/EmptyState'
 import { PageHeader } from '@/components/common/PageHeader'
+import {
+  InventorySettingsDialog,
+  LowStockOrderDialog,
+} from '@/components/inventory/InventoryDialogs'
 import { PartForm } from '@/components/inventory/PartForm'
 import { DataTable, FilterSelect, SearchInput } from '@/components/tables'
 import { Badge } from '@/components/ui/badge'
@@ -27,15 +31,30 @@ const TABLE_CONFIG = {
 const col = createColumnHelper<PartListItem>()
 
 /** Quantity with a "low" marker (icon + text, not colour alone). */
-export function StockQty({ qty, unit, low }: { qty: number; unit: string; low: boolean }) {
+export function StockQty({
+  qty,
+  unit,
+  low,
+  reserved = 0,
+}: {
+  qty: number
+  unit: string
+  low: boolean
+  reserved?: number
+}) {
   const { t } = useTranslation()
   return (
-    <span className="inline-flex items-center gap-1.5 whitespace-nowrap tabular">
+    <span className="inline-flex flex-wrap items-center gap-1.5 whitespace-nowrap tabular">
       {formatNumber(qty)} {unit}
       {low && (
         <Badge tone="danger" className="gap-1">
           <AlertTriangle className="size-3" aria-hidden /> {t('stock.low')}
         </Badge>
+      )}
+      {reserved > 0 && (
+        <span className="text-xs text-muted-foreground">
+          {t('stock.reservedShort', { qty: formatNumber(reserved) })}
+        </span>
       )}
     </span>
   )
@@ -52,6 +71,8 @@ export function InventoryPage() {
   const categories = usePartCategories()
   const query = useParts(table.apiQuery)
   const [creating, setCreating] = useState(false)
+  const [ordering, setOrdering] = useState(false)
+  const [settings, setSettings] = useState(false)
   const oneRestaurant = table.state.filters.restaurantId
 
   useEffect(() => {
@@ -80,7 +101,12 @@ export function InventoryPage() {
       header: oneRestaurant ? t('stock.inStock') : t('stock.inStockAll'),
       cell: ({ row: { original: p } }) =>
         oneRestaurant ? (
-          <StockQty qty={p.stock?.quantity ?? 0} unit={p.unit} low={p.stock?.low ?? false} />
+          <StockQty
+            qty={p.stock?.quantity ?? 0}
+            unit={p.unit}
+            low={p.stock?.low ?? false}
+            reserved={p.stock?.reserved ?? 0}
+          />
         ) : (
           <StockQty qty={p.totalQuantity} unit={p.unit} low={p.lowCount > 0} />
         ),
@@ -110,11 +136,35 @@ export function InventoryPage() {
         title={t('inventory.title')}
         description={t('inventory.subtitle')}
         actions={
-          <Can permission="parts:create">
-            <Button onClick={() => setCreating(true)}>
-              <Plus aria-hidden /> {t('parts.new')}
-            </Button>
-          </Can>
+          <>
+            <Can permission="purchase_orders:create">
+              <Button variant="secondary" onClick={() => setOrdering(true)}>
+                <ShoppingCart aria-hidden /> {t('lowStock.order')}
+              </Button>
+            </Can>
+            <Can permission="inventory:view">
+              <Button asChild variant="secondary">
+                <Link to="/stock-counts">
+                  <PackageCheck aria-hidden /> {t('counts.title')}
+                </Link>
+              </Button>
+            </Can>
+            <Can permission="inventory:edit">
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label={t('inventorySettings.title')}
+                onClick={() => setSettings(true)}
+              >
+                <Settings2 />
+              </Button>
+            </Can>
+            <Can permission="parts:create">
+              <Button onClick={() => setCreating(true)}>
+                <Plus aria-hidden /> {t('parts.new')}
+              </Button>
+            </Can>
+          </>
         }
       />
       <DataTable
@@ -184,6 +234,13 @@ export function InventoryPage() {
           />
         }
       />
+      {ordering && (
+        <LowStockOrderDialog
+          restaurantId={oneRestaurant ?? scope.restaurantId ?? undefined}
+          onClose={() => setOrdering(false)}
+        />
+      )}
+      {settings && <InventorySettingsDialog onClose={() => setSettings(false)} />}
       <Sheet open={creating} onOpenChange={setCreating}>
         <SheetContent aria-describedby={undefined}>
           <SheetHeader>

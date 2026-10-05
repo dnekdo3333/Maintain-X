@@ -5,31 +5,76 @@ import type { PurchaseOrderStatus, WorkOrderStatus } from './enums.js'
  * the UI uses the same maps to decide which action buttons to render.
  */
 
+/**
+ * Work order lifecycle:
+ *   DRAFT → OPEN → ASSIGNED / SCHEDULED → IN_PROGRESS ⇄ ON_HOLD → COMPLETED
+ *   → REVIEW ("pending verification") → VERIFIED → CLOSED
+ * A supervisor who rejects the work, or anyone reopening a finished job, sends
+ * it to REOPENED; from there it is worked again. CANCELLED is final.
+ */
 export const WORK_ORDER_TRANSITIONS: Record<WorkOrderStatus, readonly WorkOrderStatus[]> = {
-  OPEN: ['ASSIGNED'],
-  ASSIGNED: ['IN_PROGRESS', 'OPEN'],
-  IN_PROGRESS: ['ON_HOLD', 'COMPLETED'],
-  ON_HOLD: ['IN_PROGRESS'],
-  // COMPLETED → REVIEW happens automatically on worker submission; ASSIGNED is "reopen".
-  COMPLETED: ['REVIEW', 'ASSIGNED'],
-  REVIEW: ['CLOSED', 'ASSIGNED'],
-  CLOSED: ['ASSIGNED'],
+  DRAFT: ['OPEN', 'ASSIGNED', 'SCHEDULED', 'CANCELLED'],
+  OPEN: ['ASSIGNED', 'SCHEDULED', 'CANCELLED'],
+  ASSIGNED: ['IN_PROGRESS', 'OPEN', 'SCHEDULED', 'CANCELLED'],
+  SCHEDULED: ['IN_PROGRESS', 'OPEN', 'ASSIGNED', 'CANCELLED'],
+  IN_PROGRESS: ['ON_HOLD', 'COMPLETED', 'CANCELLED'],
+  ON_HOLD: ['IN_PROGRESS', 'CANCELLED'],
+  // COMPLETED → REVIEW happens automatically on submission.
+  COMPLETED: ['REVIEW', 'REOPENED'],
+  REVIEW: ['VERIFIED', 'REOPENED'],
+  // VERIFIED → CLOSED happens automatically when the supervisor approves.
+  VERIFIED: ['CLOSED', 'REOPENED'],
+  CLOSED: ['REOPENED'],
+  REOPENED: ['IN_PROGRESS', 'OPEN', 'CANCELLED'],
+  CANCELLED: [],
 }
 
-/** Statuses that count as "open work" for dashboards and overdue scans. */
+/** Statuses that count as "open work" for dashboards, workload and overdue scans. */
 export const WORK_ORDER_ACTIVE_STATUSES: readonly WorkOrderStatus[] = [
   'OPEN',
   'ASSIGNED',
+  'SCHEDULED',
   'IN_PROGRESS',
   'ON_HOLD',
+  'REOPENED',
 ]
 
-/** Statuses from which an admin may reopen. */
-export const WORK_ORDER_REOPENABLE_STATUSES: readonly WorkOrderStatus[] = [
+/** Work the technician has finished (whether or not it is verified yet). */
+export const WORK_ORDER_DONE_STATUSES: readonly WorkOrderStatus[] = [
   'COMPLETED',
   'REVIEW',
+  'VERIFIED',
   'CLOSED',
 ]
+
+/** Statuses a technician can start work from. */
+export const WORK_ORDER_STARTABLE_STATUSES: readonly WorkOrderStatus[] = [
+  'ASSIGNED',
+  'SCHEDULED',
+  'REOPENED',
+]
+
+/** Statuses from which a manager may reopen. */
+export const WORK_ORDER_REOPENABLE_STATUSES: readonly WorkOrderStatus[] = [
+  'COMPLETED',
+  'VERIFIED',
+  'CLOSED',
+]
+
+/** Statuses from which a manager may cancel. */
+export const WORK_ORDER_CANCELLABLE_STATUSES: readonly WorkOrderStatus[] = [
+  'DRAFT',
+  ...WORK_ORDER_ACTIVE_STATUSES,
+]
+
+/** Active and past its due date. */
+export function isWorkOrderOverdue(
+  w: { status: WorkOrderStatus; dueDate: string | Date | null },
+  now: Date = new Date(),
+): boolean {
+  if (!w.dueDate || !WORK_ORDER_ACTIVE_STATUSES.includes(w.status)) return false
+  return new Date(w.dueDate).getTime() < now.getTime()
+}
 
 export const PURCHASE_ORDER_TRANSITIONS: Record<
   PurchaseOrderStatus,

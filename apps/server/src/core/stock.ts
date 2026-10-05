@@ -3,6 +3,9 @@ import type { Prisma } from '@prisma/client'
 import { AppError } from './errors.js'
 import { notify, usersWithPermission } from './notify.js'
 import { prisma } from './prisma.js'
+import { runAutomations } from './automations.js'
+import { draftLowStockOrders } from './purchasing.js'
+import { inventorySettings } from './settings.js'
 
 /*
  * Every stock change goes through applyStockChange():
@@ -24,9 +27,10 @@ export interface StockChange {
   type: InventoryTxnType
   actorId: string
   unitCost?: number | null
-  referenceType?: 'WORK_ORDER' | 'PURCHASE_ORDER' | 'MANUAL'
+  referenceType?: 'WORK_ORDER' | 'PURCHASE_ORDER' | 'STOCK_COUNT' | 'MANUAL'
   referenceId?: string | null
   reason?: string | null
+  issuedToId?: string | null
 }
 
 export interface StockResult {
@@ -74,6 +78,7 @@ export async function applyStockChange(tx: Tx, c: StockChange): Promise<StockRes
       referenceId: c.referenceId ?? null,
       actorId: c.actorId,
       reason: c.reason ?? null,
+      issuedToId: c.issuedToId ?? null,
     },
   })
   return {
@@ -115,4 +120,65 @@ export async function notifyLowStock(
       { exclude: actorId },
     )
   }
+  await autoPurchaseRequests(organizationId, crossed, actorId)
+  for (const r of crossed) {
+    const part = await prisma.part.findUnique({
+      where: { id: r.partId },
+      select: { name: true, partNumber: true, unit: true },
+    })
+    await runAutomations('LOW_STOCK', {
+      organizationId,
+      restaurantId: r.restaurantId,
+      partId: r.partId,
+      label: `${part?.name ?? ''} (${part?.partNumber ?? ''}): ${r.after} ${part?.unit ?? ''} left`,
+    })
+  }
+}
+
+/**
+ * After notifying: when the organization turned on automatic purchase
+ * requests, draft purchase orders for the parts that just ran low.
+ */
+async function autoPurchaseRequests(
+  organizationId: string,
+  crossed: StockResult[],
+  actorId: string,
+) {
+  if (crossed.length === 0) return
+  if (!(await inventorySettings(organizationId)).autoPurchaseRequest) return
+  const byRestaurant = new Map<string, string[]>()
+  for (const r of crossed)
+    byRestaurant.set(r.restaurantId, [...(byRestaurant.get(r.restaurantId) ?? []), r.partId])
+  for (const [restaurantId, partIds] of byRestaurant) {
+    const result = await draftLowStockOrders(organizationId, restaurantId, actorId, { partIds })
+    for (const po of result.created) {
+      await notify(
+        await usersWithPermission(organizationId, restaurantId, 'purchase_orders:create'),
+        {
+          organizationId,
+          type: 'LOW_STOCK',
+          title: `${po.code} drafted · ${po.vendor.name}`,
+          body: `${po.itemCount} low-stock part(s) — review and submit`,
+          entityType: 'PURCHASE_ORDER',
+          entityId: po.id,
+          actionUrl: `/purchase-orders/${po.id}`,
+          priority: 'MEDIUM',
+        },
+      )
+    }
+  }
+}
+
+/** Active reservations per part and restaurant ("partId:restaurantId" → quantity). */
+export async function reservedQuantities(
+  partIds: string[],
+  restaurantIds: string[],
+): Promise<Map<string, number>> {
+  if (partIds.length === 0 || restaurantIds.length === 0) return new Map()
+  const rows = await prisma.partReservation.groupBy({
+    by: ['partId', 'restaurantId'],
+    where: { partId: { in: partIds }, restaurantId: { in: restaurantIds }, status: 'ACTIVE' },
+    _sum: { quantity: true },
+  })
+  return new Map(rows.map((r) => [`${r.partId}:${r.restaurantId}`, Number(r._sum.quantity ?? 0)]))
 }

@@ -39,7 +39,7 @@ import { toast } from '@/components/ui/toaster'
 import { useAuth } from '@/contexts/AuthContext'
 import { adminKeys, useInvalidatingMutation, useRole } from '@/hooks/useAdminQueries'
 import { rolesApi } from '@/services/admin.service'
-import { describeError } from '@/utils/errors'
+import { describeError, reportError } from '@/utils/errors'
 import { enumLabel } from '@/utils/i18n'
 
 const EMPTY: RoleInput = {
@@ -227,7 +227,7 @@ function RoleForm({ role }: { role: RoleDto | null }) {
               toast.success(t('roles.deleted'))
               navigate('/roles', { replace: true })
             } catch (err) {
-              toast.error(describeError(err, t))
+              reportError(err, t)
               throw err
             }
           }}

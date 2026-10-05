@@ -33,6 +33,12 @@ export function describeSchedule(
     case 'QUARTERLY':
       base = t('pm.quarterlyOn', { day: s.dayOfMonth ?? 1 })
       break
+    case 'YEARLY':
+      base = t('pm.yearly')
+      break
+    case 'ONCE':
+      base = t('pm.once')
+      break
     default:
       base = t('pm.everyNDays', { count: s.intervalDays ?? 1 })
   }

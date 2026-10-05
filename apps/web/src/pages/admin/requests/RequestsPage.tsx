@@ -6,7 +6,7 @@ import {
   type RequestListItem,
 } from '@maintainx/shared'
 import { createColumnHelper } from '@tanstack/react-table'
-import { ArrowRightCircle, Camera, Inbox, XCircle } from 'lucide-react'
+import { ArrowRightCircle, Camera, Inbox, XCircle, ThumbsUp } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useSearchParams } from 'react-router'
@@ -189,6 +189,7 @@ function RequestSheet({ id, onClose }: { id: string; onClose: () => void }) {
   const query = useRequest(id)
   const [converting, setConverting] = useState(false)
   const [rejecting, setRejecting] = useState(false)
+  const [approving, setApproving] = useState(false)
 
   if (query.isPending) {
     return (
@@ -266,6 +267,14 @@ function RequestSheet({ id, onClose }: { id: string; onClose: () => void }) {
             {r.rejectionReason}
           </Callout>
         )}
+        {r.status === 'APPROVED' && (
+          <Callout
+            tone="info"
+            title={t('requests.approvedBy', { name: r.reviewedBy ? fullName(r.reviewedBy) : '' })}
+          >
+            {r.reviewNote}
+          </Callout>
+        )}
         {r.workOrder && (
           <Callout tone="success" title={t('requests.convertedTo', { code: r.workOrder.code })}>
             <Link
@@ -295,8 +304,13 @@ function RequestSheet({ id, onClose }: { id: string; onClose: () => void }) {
             },
           ]}
         />
-        {(r.can.convert || r.can.reject) && (
+        {(r.can.convert || r.can.reject || r.can.approve) && (
           <div className="flex flex-wrap gap-2">
+            {r.can.approve && (
+              <Button variant="secondary" onClick={() => setApproving(true)}>
+                <ThumbsUp aria-hidden /> {t('requests.approve')}
+              </Button>
+            )}
             {r.can.convert && (
               <Button onClick={() => setConverting(true)}>
                 <ArrowRightCircle aria-hidden /> {t('requests.convert')}
@@ -310,6 +324,21 @@ function RequestSheet({ id, onClose }: { id: string; onClose: () => void }) {
           </div>
         )}
       </SheetBody>
+      <ReasonDialog
+        open={approving}
+        onOpenChange={setApproving}
+        title={t('requests.approveTitle')}
+        description={t('requests.approveBody')}
+        label={t('requests.approveNote')}
+        confirmLabel={t('requests.approve')}
+        minLength={0}
+        onSubmit={async (note) => {
+          const updated = await requestsApi.approve(r.id, { note })
+          qc.setQueryData(workKeys.request(r.id), updated)
+          await qc.invalidateQueries({ queryKey: ['requests', 'list'] })
+          toast.success(t('requests.approved'))
+        }}
+      />
       <ReasonDialog
         open={rejecting}
         onOpenChange={setRejecting}

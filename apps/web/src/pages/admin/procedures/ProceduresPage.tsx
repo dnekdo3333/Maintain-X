@@ -40,7 +40,7 @@ import {
   useInspectionTemplates,
   useProcedures,
 } from '@/services/maintenance.service'
-import { describeError } from '@/utils/errors'
+import { describeError, reportError } from '@/utils/errors'
 import { enumLabel } from '@/utils/i18n'
 
 const ALL = '__all__'
@@ -242,7 +242,7 @@ function TemplateList() {
             await archive.mutateAsync(archiving!.id)
             toast.success(t('templates.archived'))
           } catch (err) {
-            toast.error(describeError(err, t))
+            reportError(err, t)
             throw err
           }
         }}

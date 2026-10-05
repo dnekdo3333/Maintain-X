@@ -17,7 +17,7 @@ import { toast } from '@/components/ui/toaster'
 import { BottomActionBar } from '@/components/worker/BottomActionBar'
 import { WorkerPageHeader } from '@/components/worker/WorkerPageHeader'
 import { inspectionsApi, mxKeys, useInspection } from '@/services/maintenance.service'
-import { describeError } from '@/utils/errors'
+import { reportError } from '@/utils/errors'
 import { enumLabel } from '@/utils/i18n'
 
 export function WorkerInspectionPage() {
@@ -59,6 +59,8 @@ function Runner({ ins }: { ins: InspectionDetail }) {
   }
   const answer = async (itemId: string, input: StepAnswerInput) =>
     apply(await inspectionsApi.answer(ins.id, itemId, input))
+  const uploadStep = async (itemId: string, files: File[]) =>
+    apply(await inspectionsApi.uploadStep(ins.id, itemId, files))
 
   async function submit() {
     setSubmitting(true)
@@ -72,7 +74,7 @@ function Runner({ ins }: { ins: InspectionDetail }) {
           : t('inspections.submitted'),
       )
     } catch (err) {
-      toast.error(describeError(err, t))
+      reportError(err, t)
     } finally {
       setSubmitting(false)
     }
@@ -125,6 +127,7 @@ function Runner({ ins }: { ins: InspectionDetail }) {
           items={ins.items}
           editable={ins.can.answer}
           onAnswer={answer}
+          onUpload={uploadStep}
           correctiveLinkBase={null}
         />
 
@@ -179,7 +182,7 @@ function Runner({ ins }: { ins: InspectionDetail }) {
             await qc.invalidateQueries({ queryKey: mxKeys.inspections })
             navigate('/w/checklists', { replace: true })
           } catch (err) {
-            toast.error(describeError(err, t))
+            reportError(err, t)
             throw err
           }
         }}

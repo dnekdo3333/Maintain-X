@@ -72,6 +72,17 @@ export const inspectionsApi = {
   submit: (id: string, notes: string) =>
     unwrap(http.post<ApiResponse<InspectionDetail>>(`/inspections/${id}/submit`, { notes })),
   discard: (id: string) => http.delete<void>(`/inspections/${id}`),
+  /** A photo or signature for one step. */
+  uploadStep: (id: string, itemId: string, files: File[]) => {
+    const body = new FormData()
+    for (const f of files) body.append('files', f, f.name)
+    return unwrap(
+      http.post<ApiResponse<InspectionDetail>>(
+        `/inspections/${id}/items/${itemId}/attachments`,
+        body,
+      ),
+    )
+  },
 }
 
 export const checklistApi = {

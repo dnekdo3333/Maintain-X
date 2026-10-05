@@ -12,6 +12,8 @@ import {
 import { canAccessRestaurant } from '../../core/authz.js'
 import { ValidationError } from '../../core/errors.js'
 import { prisma } from '../../core/prisma.js'
+import type { Prisma } from '@prisma/client'
+import * as kpi from './reports.kpi.js'
 import { startOfDateInZone } from '../../core/time.js'
 import type { AuthContext } from '../auth/auth.context.js'
 
@@ -32,6 +34,8 @@ interface Ctx {
   /** Exclusive end (start of the day after `to`). */
   to: Date
   now: Date
+  /** Work-order filters (location, asset, technician, team, vendor, priority, status, type). */
+  wo: Prisma.WorkOrderWhereInput
 }
 
 type Row = Record<string, ReportCell>
@@ -83,6 +87,7 @@ async function context(auth: AuthContext, q: ReportQuery): Promise<Ctx> {
     from: startOfDateInZone(org.timezone, q.from),
     to: startOfDateInZone(org.timezone, toNext),
     now: new Date(),
+    wo: kpi.workOrderFilters(q),
   }
 }
 
@@ -97,10 +102,10 @@ async function workOrderSummary(c: Ctx): Promise<Built> {
     orderBy: { name: 'asc' },
   })
   const scope = { organizationId: c.orgId, restaurantId: { in: c.restaurantIds }, archivedAt: null }
-  const group = async (where: object) => {
+  const group = async (where: Prisma.WorkOrderWhereInput) => {
     const rows = await prisma.workOrder.groupBy({
       by: ['restaurantId'],
-      where: { ...scope, ...where },
+      where: { AND: [scope, c.wo, where] },
       _count: { _all: true },
     })
     return new Map(rows.map((r) => [r.restaurantId, r._count._all]))
@@ -146,6 +151,7 @@ async function workOrdersCompleted(c: Ctx): Promise<Built> {
     where: {
       organizationId: c.orgId,
       restaurantId: { in: c.restaurantIds },
+      AND: [c.wo],
       completedAt: inRange(c),
     },
     include: {
@@ -203,6 +209,7 @@ async function overdueWorkOrders(c: Ctx): Promise<Built> {
     where: {
       organizationId: c.orgId,
       restaurantId: { in: c.restaurantIds },
+      AND: [c.wo],
       archivedAt: null,
       status: { in: [...WORK_ORDER_ACTIVE_STATUSES] },
       dueDate: { lt: c.now },
@@ -253,6 +260,7 @@ async function repairTime(c: Ctx): Promise<Built> {
     where: {
       organizationId: c.orgId,
       restaurantId: { in: c.restaurantIds },
+      AND: [c.wo],
       completedAt: inRange(c),
       type: { not: 'PREVENTIVE' },
     },
@@ -302,6 +310,7 @@ async function technicianPerformance(c: Ctx): Promise<Built> {
     where: {
       organizationId: c.orgId,
       restaurantId: { in: c.restaurantIds },
+      AND: [c.wo],
       completedAt: inRange(c),
       assignedUserId: { not: null },
     },
@@ -1075,6 +1084,21 @@ const REPORTS: Record<ReportKey, (c: Ctx) => Promise<Built>> = {
   'parts-consumption': partsConsumption,
   'vendor-spend': vendorSpend,
   'unpaid-invoices': unpaidInvoices,
+  'maintenance-mix': kpi.maintenanceMix,
+  labour: kpi.labour,
+  reliability: kpi.reliability,
+  'repeat-failures': kpi.repeatFailures,
+  'failure-analysis': kpi.failureAnalysis,
+  'cost-breakdown': kpi.costBreakdownReport,
+  'vendor-performance': kpi.vendorPerformance,
+}
+
+/** Trend series and headline KPIs for the analytics page. */
+export async function analyticsTrends(auth: AuthContext, q: ReportQuery) {
+  const c = await context(auth, q)
+  if (c.restaurantIds.length === 0)
+    return kpi.trends({ ...c, restaurantIds: ['00000000-0000-0000-0000-000000000000'] })
+  return kpi.trends(c)
 }
 
 export async function runReport(

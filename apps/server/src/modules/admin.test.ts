@@ -245,6 +245,9 @@ describe('users', () => {
     const assignable = await a.get('/roles/assignable')
     expect(assignable.body.data.map((r: RoleDto) => r.systemKey).sort()).toEqual([
       'ADMIN',
+      'MAINTENANCE_MANAGER',
+      'REQUESTER',
+      'SUPERVISOR',
       'WORKER',
     ])
 
@@ -443,7 +446,10 @@ describe('roles', () => {
     const list = await api(superToken).get('/roles')
     expect(list.body.data.map((r: RoleDto) => [r.systemKey, r.locked])).toEqual([
       ['ADMIN', false],
+      ['MAINTENANCE_MANAGER', false],
+      ['REQUESTER', true],
       ['SUPER_ADMIN', true],
+      ['SUPERVISOR', false],
       ['WORKER', true],
     ])
   })

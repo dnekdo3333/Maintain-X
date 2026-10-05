@@ -1,7 +1,10 @@
 import { Router } from 'express'
+import { automationsRouter } from './automations/automations.routes.js'
+import { metersRouter } from './meters/meters.routes.js'
 import { assetsRouter } from './assets/assets.routes.js'
 import { auditRouter } from './audit/audit.routes.js'
 import { authRouter } from './auth/auth.routes.js'
+import { calendarRouter } from './calendar/calendar.routes.js'
 import { dashboardRouter } from './dashboard/dashboard.routes.js'
 import { documentsRouter } from './documents/documents.routes.js'
 import { filesRouter } from './files/files.routes.js'
@@ -19,6 +22,7 @@ import { reportsRouter } from './reports/reports.routes.js'
 import { requestsRouter } from './requests/requests.routes.js'
 import { restaurantsRouter } from './restaurants/restaurants.routes.js'
 import { rolesRouter } from './roles/roles.routes.js'
+import { stockCountsRouter } from './stock-counts/stock-counts.routes.js'
 import { teamsRouter } from './teams/teams.routes.js'
 import { usersRouter } from './users/users.routes.js'
 import { vendorsRouter } from './vendors/vendors.routes.js'
@@ -34,12 +38,16 @@ apiRouter.use(meRouter)
 apiRouter.use(restaurantsRouter)
 apiRouter.use(locationsRouter)
 apiRouter.use(assetsRouter)
+apiRouter.use(metersRouter)
+apiRouter.use(automationsRouter)
 apiRouter.use(requestsRouter)
 apiRouter.use(workOrdersRouter)
+apiRouter.use(calendarRouter)
 apiRouter.use(maintenanceRouter)
 apiRouter.use(proceduresRouter)
 apiRouter.use(inspectionsRouter)
 apiRouter.use(inventoryRouter)
+apiRouter.use(stockCountsRouter)
 apiRouter.use(vendorsRouter)
 apiRouter.use(purchaseOrdersRouter)
 apiRouter.use(notificationsRouter)

@@ -27,12 +27,14 @@ export function PageHeader({
   const { t } = useTranslation()
   return (
     <div
+      data-m="page-header"
       className={cn(
-        'flex flex-col gap-3 pb-5 sm:flex-row sm:items-start sm:justify-between',
+        // Many actions wrap under the title instead of squeezing it.
+        'flex flex-col gap-3 pb-5 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between',
         className,
       )}
     >
-      <div className="min-w-0">
+      <div className="min-w-0 sm:min-w-64 sm:flex-1">
         {back && (
           <Link
             to={back.to}
@@ -46,7 +48,11 @@ export function PageHeader({
         {meta && <div className="mt-1.5 flex flex-wrap items-center gap-2">{meta}</div>}
         {description && <p className="mt-1 text-sm text-muted-foreground">{description}</p>}
       </div>
-      {actions && <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>}
+      {actions && (
+        <div data-m="page-actions" className="flex flex-wrap items-center gap-2 sm:justify-end">
+          {actions}
+        </div>
+      )}
     </div>
   )
 }

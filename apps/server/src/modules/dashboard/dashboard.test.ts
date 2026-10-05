@@ -70,15 +70,27 @@ describe('GET /dashboard', () => {
     const res = await dashboard(await token('boss'))
     expect(res.status).toBe(200)
     const d = res.body.data as DashboardSummary
-    expect(d.counts).toEqual({
+    expect(d.counts).toMatchObject({
       restaurants: 3,
+      activeRestaurants: 3,
       open: 0,
       overdue: 0,
       inProgress: 0,
+      pendingVerification: 0,
       completed30d: 0,
       critical: 0,
       lowStock: 0,
+      openRequests: 0,
+      assetsDown: 0,
+      criticalAssetsDown: 0,
+      failedInspections: 0,
     })
+    expect(d.cost).toEqual({ parts: 0, labour: 0, vendor: 0, other: 0, total: 0 })
+    expect(d.mix).toEqual({ REACTIVE: 0, PREVENTIVE: 0, INSPECTION_FOLLOWUP: 0 })
+    expect(d.trend).toHaveLength(30)
+    expect(d.trend.every((p) => p.created === 0 && p.completed === 0)).toBe(true)
+    expect(d.mttrHours).toBeNull()
+    expect(d.downtimeHours).toBe(0)
     expect(d.pmCompliance).toBeNull()
     expect(d.todaysTasks).toEqual([])
     expect(d.restaurants).toHaveLength(3)

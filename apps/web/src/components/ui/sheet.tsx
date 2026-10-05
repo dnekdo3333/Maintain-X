@@ -51,6 +51,7 @@ export function SheetContent({
       />
       <SheetPrimitive.Content
         data-slot="sheet-content"
+        data-side={side ?? 'right'}
         className={cn(sheetVariants({ side }), className)}
         {...props}
       >

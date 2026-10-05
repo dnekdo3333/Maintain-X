@@ -1,4 +1,5 @@
 import type {
+  AssetCriticality,
   AssetStatus,
   Priority,
   PurchaseOrderStatus,
@@ -20,17 +21,23 @@ import type { BadgeTone } from '@/components/ui/badge'
  *   outline  closed / retired / cancelled (finished, out of the way)
  */
 export const WORK_ORDER_STATUS_TONE: Record<WorkOrderStatus, BadgeTone> = {
+  DRAFT: 'outline',
   OPEN: 'neutral',
   ASSIGNED: 'info',
+  SCHEDULED: 'info',
   IN_PROGRESS: 'warning',
   ON_HOLD: 'warning',
   COMPLETED: 'success',
   REVIEW: 'review',
+  VERIFIED: 'success',
   CLOSED: 'outline',
+  REOPENED: 'danger',
+  CANCELLED: 'outline',
 }
 
 export const ASSET_STATUS_TONE: Record<AssetStatus, BadgeTone> = {
   OPERATIONAL: 'success',
+  WARNING: 'warning',
   UNDER_MAINTENANCE: 'warning',
   BROKEN: 'danger',
   INACTIVE: 'neutral',
@@ -49,11 +56,19 @@ export const PURCHASE_ORDER_STATUS_TONE: Record<PurchaseOrderStatus, BadgeTone> 
 
 export const REQUEST_STATUS_TONE: Record<RequestStatus, BadgeTone> = {
   NEW: 'info',
+  APPROVED: 'review',
   CONVERTED: 'success',
   REJECTED: 'neutral',
 }
 
 export const PRIORITY_TONE: Record<Priority, BadgeTone> = {
+  LOW: 'neutral',
+  MEDIUM: 'info',
+  HIGH: 'warning',
+  CRITICAL: 'danger',
+}
+
+export const ASSET_CRITICALITY_TONE: Record<AssetCriticality, BadgeTone> = {
   LOW: 'neutral',
   MEDIUM: 'info',
   HIGH: 'warning',
@@ -80,6 +95,7 @@ export const RESTAURANT_STATUS_TONE: Record<RestaurantStatus, BadgeTone> = {
 export interface StatusValueMap {
   workOrderStatus: WorkOrderStatus
   assetStatus: AssetStatus
+  assetCriticality: AssetCriticality
   purchaseOrderStatus: PurchaseOrderStatus
   requestStatus: RequestStatus
   priority: Priority
@@ -93,6 +109,7 @@ export type StatusKind = keyof StatusValueMap
 export const STATUS_TONES: { [K in StatusKind]: Record<StatusValueMap[K], BadgeTone> } = {
   workOrderStatus: WORK_ORDER_STATUS_TONE,
   assetStatus: ASSET_STATUS_TONE,
+  assetCriticality: ASSET_CRITICALITY_TONE,
   purchaseOrderStatus: PURCHASE_ORDER_STATUS_TONE,
   requestStatus: REQUEST_STATUS_TONE,
   priority: PRIORITY_TONE,

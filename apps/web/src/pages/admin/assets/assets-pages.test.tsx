@@ -23,6 +23,8 @@ const CAT = { id: '22222222-2222-4222-8222-222222222222', name: 'Refrigerator', 
 const LOC: LocationDto = {
   id: '33333333-3333-4333-8333-333333333333',
   restaurantId: R1.id,
+  parentId: null,
+  publicId: 'LOCQR1234567',
   name: 'Storage',
   type: 'STORAGE',
   description: null,
@@ -35,6 +37,8 @@ const ITEM: AssetListItem = {
   assetCode: 'AST-0001',
   name: 'Walk-in freezer',
   status: 'BROKEN',
+  criticality: 'HIGH',
+  parent: null,
   category: { id: CAT.id, name: CAT.name },
   restaurant: R1,
   location: { id: LOC.id, name: LOC.name },
@@ -49,6 +53,11 @@ const DETAIL: AssetDetail = {
   purchaseDate: '2024-03-01',
   purchaseCost: '185000',
   vendor: null,
+  installDate: null,
+  children: [],
+  cost: { parts: 0, labour: 0, vendor: 0, other: 0, total: 0 },
+  workOrderStats: { total: 0, reactive: 0, completed: 0 },
+  recentWorkOrders: [],
   warrantyStart: '2024-03-01',
   notes: null,
   createdAt: new Date().toISOString(),
@@ -75,7 +84,7 @@ const DETAIL: AssetDetail = {
       occurredAt: new Date().toISOString(),
     },
   ],
-  can: { edit: true, delete: true },
+  can: { edit: true, delete: true, transfer: true },
 }
 
 const admin = makeUser({ permissions: [...ADMIN_DEFAULT_PERMISSIONS], restaurants: [R1] })
@@ -149,7 +158,7 @@ describe('admin assets', () => {
     const { router, container } = renderAt('/assets')
     const table = await screen.findByRole('table', { name: 'Assets' })
     expect(await within(table).findByText('Walk-in freezer')).toBeInTheDocument()
-    expect(within(table).getByText('Broken')).toBeInTheDocument()
+    expect(within(table).getByText('Offline / broken')).toBeInTheDocument()
     expect(within(table).getByText('Under warranty')).toBeInTheDocument()
     await expectAccessible(container)
 
@@ -163,7 +172,7 @@ describe('admin assets', () => {
     await screen.findByRole('heading', { level: 1, name: 'Walk-in freezer' })
     expect(screen.getByText(/Not working since/)).toBeInTheDocument()
     expect(screen.getByText('“Compressor not starting”')).toBeInTheDocument()
-    expect(screen.getByText(/Operational → Broken/)).toBeInTheDocument()
+    expect(screen.getByText(/Operational → Offline \/ broken/)).toBeInTheDocument()
     expect(screen.getByRole('img', { name: /QR code: Walk-in freezer/ })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /Print label/ })).toHaveAttribute(
       'href',

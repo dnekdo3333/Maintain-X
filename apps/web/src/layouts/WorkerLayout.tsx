@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
+import { OfflineBanner } from '@/components/common/OfflineBanner'
 import { NavLink, Outlet, useLocation, useMatches } from 'react-router'
 import { cn } from '@/utils/cn'
 import { BrandMark } from './BrandMark'
@@ -114,6 +115,7 @@ export function WorkerLayout({ tabs, moreItems = [], sidebarFooter, children }: 
             hideNav ? 'pb-safe' : 'pb-[calc(4rem+env(safe-area-inset-bottom))] lg:pb-6',
           )}
         >
+          <OfflineBanner />
           <div key={location.pathname} className="animate-rise">
             {children ?? <Outlet />}
           </div>
@@ -123,6 +125,7 @@ export function WorkerLayout({ tabs, moreItems = [], sidebarFooter, children }: 
       {!hideNav && (
         <nav
           aria-label={t('nav.main')}
+          data-m="w-nav"
           className="glass fixed inset-x-0 bottom-0 z-30 border-t pb-safe lg:hidden"
         >
           <ul

@@ -3,6 +3,8 @@ import {
   canTransitionPurchaseOrder,
   lineTotal,
   type ListPurchaseOrdersQuery,
+  type LowStockOrderInput,
+  type LowStockOrderResult,
   type PagedResponse,
   type PurchaseOrderActions,
   type PurchaseOrderDetail,
@@ -26,6 +28,7 @@ import {
 import { notify, usersWithPermission } from '../../core/notify.js'
 import { toPagedResponse, toSkipTake } from '../../core/pagination.js'
 import { prisma } from '../../core/prisma.js'
+import { draftLowStockOrders } from '../../core/purchasing.js'
 import { applyStockChange, notifyLowStock, round3, type StockResult } from '../../core/stock.js'
 import type { AuthContext } from '../auth/auth.context.js'
 
@@ -577,5 +580,37 @@ export async function receivePurchaseOrder(
     )
   })
   await notifyLowStock(auth.organizationId, stock, auth.userId)
-  return getPurchaseOrder(auth, id)
+  const after = await getPurchaseOrder(auth, id)
+  // The requester and the stock keepers learn the goods are in.
+  const stockKeepers = await usersWithPermission(
+    auth.organizationId,
+    d.restaurant.id,
+    'inventory:edit',
+  )
+  await notify(
+    [...new Set([d.requestedBy.id, ...stockKeepers])],
+    {
+      organizationId: auth.organizationId,
+      type: 'PO_RECEIVED',
+      title: `${d.code} ${after.status === 'RECEIVED' ? 'received' : 'partly received'} · ${d.vendor.name}`,
+      body: `${lines.length} line(s) added to stock at ${d.restaurant.name}`,
+      entityType: 'PURCHASE_ORDER',
+      entityId: id,
+      actionUrl: `/purchase-orders/${id}`,
+      priority: 'LOW',
+    },
+    { exclude: auth.userId },
+  )
+  return after
+}
+
+/** Purchase requests for every low part at a restaurant, grouped by preferred vendor. */
+export async function orderLowStock(
+  auth: AuthContext,
+  input: LowStockOrderInput,
+  req: Request,
+): Promise<LowStockOrderResult> {
+  if (!canAccessRestaurant(auth, input.restaurantId))
+    throw new ValidationError({ restaurantId: ['validation.restaurantOutOfScope'] })
+  return draftLowStockOrders(auth.organizationId, input.restaurantId, auth.userId, { req })
 }

@@ -180,8 +180,19 @@ describe('alerts job', () => {
       { buf: PDF, name: 'fssai.pdf' },
     )
 
-    expect(await runAlerts(now)).toEqual({ overdue: 1, warranty: 1, documents: 1 })
-    expect(await runAlerts(now)).toEqual({ overdue: 0, warranty: 0, documents: 0 })
+    expect(await runAlerts(now)).toMatchObject({
+      overdue: 1,
+      warranty: 1,
+      documents: 1,
+      contracts: 0,
+    })
+    expect(await runAlerts(now)).toEqual({
+      overdue: 0,
+      dueSoon: 0,
+      warranty: 0,
+      documents: 0,
+      contracts: 0,
+    })
 
     const forWorker = await prisma.notification.findMany({ where: { recipientId: ids.worker } })
     expect(forWorker.map((n) => n.type)).toContain('TASK_OVERDUE')

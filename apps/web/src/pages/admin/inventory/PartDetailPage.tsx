@@ -1,8 +1,9 @@
 import { fullName, type PartDetail, type StockLevel } from '@maintainx/shared'
-import { ArrowDownUp, Pencil, ShoppingCart, Trash2 } from 'lucide-react'
+import { ArrowDownUp, Download, Pencil, ShoppingCart, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams } from 'react-router'
+import { QrCode } from '@/components/assets/QrCode'
 import { Can } from '@/components/common/Can'
 import { ConfirmDialog } from '@/components/common/ConfirmDialog'
 import { DetailList } from '@/components/common/DetailList'
@@ -19,8 +20,9 @@ import { toast } from '@/components/ui/toaster'
 import { useInvalidatingMutation, useRestaurants } from '@/hooks/useAdminQueries'
 import { buyKeys, partsApi, usePart } from '@/services/purchasing.service'
 import { cn } from '@/utils/cn'
-import { describeError } from '@/utils/errors'
+import { reportError } from '@/utils/errors'
 import { formatCurrency, formatDateTime, formatNumber } from '@/utils/format'
+import { downloadQrPng, partQrUrl } from '@/utils/qr'
 import { StockQty } from './InventoryPage'
 
 export function PartDetailPage() {
@@ -64,6 +66,11 @@ function Detail({ p, back }: { p: PartDetail; back: { to: string; label: string 
         meta={
           <>
             <span className="text-13 text-muted-foreground tabular">{p.partNumber}</span>
+            {p.sku && (
+              <span className="text-13 text-muted-foreground tabular">
+                {t('parts.sku')}: {p.sku}
+              </span>
+            )}
             {p.category && <Badge tone="outline">{p.category}</Badge>}
           </>
         }
@@ -115,6 +122,13 @@ function Detail({ p, back }: { p: PartDetail; back: { to: string; label: string 
                 { label: t('parts.unitCost'), value: formatCurrency(p.unitCost) },
                 { label: t('parts.minStock'), value: `${formatNumber(p.minStock)} ${p.unit}` },
                 {
+                  label: t('parts.reorderQty'),
+                  value:
+                    p.reorderQty === null
+                      ? t('parts.reorderAuto')
+                      : `${formatNumber(p.reorderQty)} ${p.unit}`,
+                },
+                {
                   label: t('parts.preferredVendor'),
                   value: p.preferredVendor && (
                     <Link
@@ -128,6 +142,24 @@ function Detail({ p, back }: { p: PartDetail; back: { to: string; label: string 
                 { label: t('parts.storage'), value: p.storageLocation },
               ]}
             />
+            <div className="mt-4 flex items-center gap-4 rounded-lg border bg-muted/40 p-3">
+              <QrCode
+                value={partQrUrl(p.publicId)}
+                label={t('parts.qrLabel', { name: p.name })}
+                className="w-24 shrink-0"
+              />
+              <div className="grid gap-2">
+                <p className="text-13 text-muted-foreground">{t('parts.qrHint')}</p>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="justify-self-start"
+                  onClick={() => void downloadQrPng(partQrUrl(p.publicId), `${p.partNumber}.png`)}
+                >
+                  <Download aria-hidden /> {t('assets.downloadPng')}
+                </Button>
+              </div>
+            </div>
           </PanelBody>
         </Panel>
 
@@ -153,6 +185,15 @@ function Detail({ p, back }: { p: PartDetail; back: { to: string; label: string 
                       {l.minOverride !== null && ` · ${t('stock.custom')}`}
                       {l.storageLocation && ` · ${l.storageLocation}`}
                     </span>
+                    {l.reserved > 0 && (
+                      <span className="block text-xs text-muted-foreground">
+                        {t('stock.reservedAvailable', {
+                          reserved: formatNumber(l.reserved),
+                          available: formatNumber(l.available),
+                          unit: p.unit,
+                        })}
+                      </span>
+                    )}
                   </span>
                   <StockQty qty={l.quantity} unit={p.unit} low={l.low} />
                   {p.can.adjust && (
@@ -175,6 +216,34 @@ function Detail({ p, back }: { p: PartDetail; back: { to: string; label: string 
           )}
         </Panel>
       </div>
+
+      {p.reservations.length > 0 && (
+        <Panel className="mt-4">
+          <PanelHeader>
+            <PanelTitle>{t('stock.reservations')}</PanelTitle>
+          </PanelHeader>
+          <ul className="divide-y">
+            {p.reservations.map((r) => (
+              <li key={r.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2.5">
+                <span className="min-w-0 flex-1">
+                  <Link
+                    to={`/work-orders/${r.workOrder.id}`}
+                    className="block text-sm font-medium text-primary hover:underline"
+                  >
+                    {r.workOrder.code} · {r.workOrder.title}
+                  </Link>
+                  <span className="block text-xs text-muted-foreground">
+                    {r.restaurant.name} · {fullName(r.createdBy)} · {formatDateTime(r.createdAt)}
+                  </span>
+                </span>
+                <span className="text-sm tabular">
+                  {formatNumber(r.quantity)} {p.unit}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </Panel>
+      )}
 
       <Panel className="mt-4">
         <PanelHeader>
@@ -211,7 +280,9 @@ function Detail({ p, back }: { p: PartDetail; back: { to: string; label: string 
                             to={
                               x.reference.type === 'WORK_ORDER'
                                 ? `/work-orders/${x.reference.id}`
-                                : `/purchase-orders/${x.reference.id}`
+                                : x.reference.type === 'STOCK_COUNT'
+                                  ? `/stock-counts/${x.reference.id}`
+                                  : `/purchase-orders/${x.reference.id}`
                             }
                             className="text-primary hover:underline"
                           >
@@ -233,7 +304,14 @@ function Detail({ p, back }: { p: PartDetail; back: { to: string; label: string 
                     </td>
                     <td className="px-4 py-2 text-right tabular">{formatNumber(x.balanceAfter)}</td>
                     <td className="px-4 py-2">{x.restaurant.name}</td>
-                    <td className="px-4 py-2 text-13">{x.actor ? fullName(x.actor) : '—'}</td>
+                    <td className="px-4 py-2 text-13">
+                      {x.actor ? fullName(x.actor) : '—'}
+                      {x.issuedTo && (
+                        <span className="block text-xs text-muted-foreground">
+                          {t('stock.issuedToName', { name: fullName(x.issuedTo) })}
+                        </span>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -289,7 +367,7 @@ function Detail({ p, back }: { p: PartDetail; back: { to: string; label: string 
             toast.success(t('parts.archived'))
             navigate('/inventory', { replace: true })
           } catch (err) {
-            toast.error(describeError(err, t))
+            reportError(err, t)
             throw err
           }
         }}

@@ -20,7 +20,7 @@ import { toast } from '@/components/ui/toaster'
 import { useInvalidatingMutation } from '@/hooks/useAdminQueries'
 import { mxKeys, pmApi, usePmSchedule } from '@/services/maintenance.service'
 import { workKeys } from '@/services/work-orders.service'
-import { describeError } from '@/utils/errors'
+import { reportError } from '@/utils/errors'
 import { formatDate, formatDateTime, formatDuration } from '@/utils/format'
 import { enumLabel } from '@/utils/i18n'
 import { ComplianceText } from './MaintenancePage'
@@ -66,7 +66,7 @@ function Detail({ s, back }: { s: PmScheduleDetail; back: { to: string; label: s
       await fn()
       toast.success(success)
     } catch (err) {
-      toast.error(describeError(err, t))
+      reportError(err, t)
     }
   }
 
@@ -296,7 +296,7 @@ function Detail({ s, back }: { s: PmScheduleDetail; back: { to: string; label: s
             toast.success(t('pm.archived'))
             navigate('/maintenance', { replace: true })
           } catch (err) {
-            toast.error(describeError(err, t))
+            reportError(err, t)
             throw err
           }
         }}

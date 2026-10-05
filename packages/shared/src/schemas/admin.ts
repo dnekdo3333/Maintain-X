@@ -37,6 +37,14 @@ const userProfileShape = {
   email: optionalEmailSchema,
   username: optionalUsernameSchema,
   phone: optionalPhoneSchema,
+  /** e.g. "Refrigeration technician"; omitted = unchanged. */
+  jobTitle: z.string().trim().max(80).optional(),
+  /** Labour cost per hour in rupees ('' = not set); omitted = unchanged. Not self-editable. */
+  hourlyRate: z
+    .string()
+    .trim()
+    .refine((v) => v === '' || /^\d{1,6}(\.\d{1,2})?$/.test(v), 'validation.invalidNumber')
+    .optional(),
 }
 
 const hasIdentifier = (v: { email: string; username: string; phone: string }) =>
@@ -127,6 +135,9 @@ export const restaurantSchema = z.object({
   opensAt: timeOfDay,
   closesAt: timeOfDay,
   status: z.enum(RESTAURANT_STATUS),
+  /** Person in charge on site; '' = none, omitted = unchanged. */
+  managerId: z.uuid().or(z.literal('')).optional(),
+  contactName: optionalText(120).optional(),
 })
 export type RestaurantInput = z.infer<typeof restaurantSchema>
 

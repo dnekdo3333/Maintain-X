@@ -13,6 +13,7 @@ import { createApp } from '../../app.js'
 import { prisma } from '../../core/prisma.js'
 import { dateKeyInZone, startOfDateInZone } from '../../core/time.js'
 import { TEST_PASSWORD, createFixture, resetDatabase, type Fixture } from '../../test/db.js'
+import { giveEvidence, report } from '../../test/work-orders.js'
 import { runPmGenerator } from './pm-generator.js'
 
 const TZ = 'Asia/Kolkata'
@@ -226,6 +227,8 @@ describe('work-order checklists', () => {
       ).status,
     ).toBe(403)
     await worker.post(`/work-orders/${w.id}/start`)
+    await giveEvidence(w.id, ids.worker)
+    await giveEvidence(w.id, ids.worker)
     expect(
       (await other.put(`/work-orders/${w.id}/checklist/${temp!.id}`, answer({ numericValue: -18 })))
         .status,
@@ -244,10 +247,13 @@ describe('work-order checklists', () => {
       completedBy: { id: ids.worker },
     })
 
-    const early = await worker.post(`/work-orders/${w.id}/complete`, {
-      notes: 'Done',
-      assetStatus: '',
-    })
+    const early = await worker.post(
+      `/work-orders/${w.id}/complete`,
+      report({
+        notes: 'Done',
+        assetStatus: '',
+      }),
+    )
     expect(early.status).toBe(409)
     expect(early.body.error.code).toBe('CHECKLIST_INCOMPLETE')
 
@@ -257,7 +263,10 @@ describe('work-order checklists', () => {
     expect(d.checklist[1]!.result).toBe('PASS')
 
     const done = (
-      await worker.post(`/work-orders/${w.id}/complete`, { notes: 'Checked all', assetStatus: '' })
+      await worker.post(
+        `/work-orders/${w.id}/complete`,
+        report({ notes: 'Checked all', assetStatus: '' }),
+      )
     ).body.data as WorkOrderDetail
     expect(done.status).toBe('REVIEW')
     const fix = done.checklist[0]!.correctiveWorkOrder

@@ -34,3 +34,6 @@ export function buildPageMeta(page: number, pageSize: number, total: number): Pa
     totalPages: total === 0 ? 0 : Math.ceil(total / pageSize),
   }
 }
+
+/** Header that makes a write safe to retry: the same key returns the first result. */
+export const IDEMPOTENCY_HEADER = 'Idempotency-Key'

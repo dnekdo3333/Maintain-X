@@ -15,7 +15,6 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
-import { toast } from '@/components/ui/toaster'
 import { WorkerPageHeader } from '@/components/worker/WorkerPageHeader'
 import {
   inspectionsApi,
@@ -23,7 +22,7 @@ import {
   useInspections,
 } from '@/services/maintenance.service'
 import { useWorkerRestaurants } from '@/services/worker.service'
-import { describeError } from '@/utils/errors'
+import { reportError } from '@/utils/errors'
 import { formatRelative } from '@/utils/format'
 import { enumLabel } from '@/utils/i18n'
 import { TaskListSkeleton } from './WorkerTaskList'
@@ -45,7 +44,7 @@ export function WorkerChecklistsPage() {
       const ins = await inspectionsApi.start({ templateId: tp.id, restaurantId, assetId: '' })
       navigate(`/w/inspections/${ins.id}`)
     } catch (err) {
-      toast.error(describeError(err, t))
+      reportError(err, t)
     } finally {
       setStarting(null)
     }

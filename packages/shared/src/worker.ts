@@ -1,5 +1,11 @@
 import { z } from 'zod'
-import type { Priority, WorkOrderStatus } from './enums.js'
+import {
+  PRIORITY,
+  WORK_ORDER_STATUS,
+  type Priority,
+  type WorkOrderStatus,
+  type WorkOrderType,
+} from './enums.js'
 import { paginationQuerySchema } from './schemas/common.js'
 
 /** The worker app's view of a task (a work order assigned to them or their team). */
@@ -9,7 +15,10 @@ export interface WorkerTask {
   title: string
   priority: Priority
   status: WorkOrderStatus
+  type: WorkOrderType
   dueDate: string | null
+  scheduledStart: string | null
+  overdue: boolean
   completedAt: string | null
   restaurant: { id: string; name: string }
   location: { id: string; name: string } | null
@@ -26,16 +35,28 @@ export interface WorkerHome {
     inProgress: number
     /** Completed in the last 7 days. */
     doneThisWeek: number
+    /** Open work marked HIGH or CRITICAL. */
+    highPriority: number
+    /** Open preventive maintenance jobs. */
+    preventive: number
+    /** Opening / closing checklists still to do today in my restaurants. */
+    checklistsDue: number
   }
   /** Next tasks to do: overdue first, then soonest due. */
   next: WorkerTask[]
 }
 
-export const WORKER_TASK_VIEWS = ['today', 'upcoming', 'done'] as const
+export const WORKER_TASK_VIEWS = ['today', 'upcoming', 'overdue', 'done'] as const
 export type WorkerTaskView = (typeof WORKER_TASK_VIEWS)[number]
 
 export const workerTasksQuerySchema = paginationQuerySchema.extend({
   view: z.enum(WORKER_TASK_VIEWS).default('today'),
+  priority: z.enum(PRIORITY).optional(),
+  status: z.enum(WORK_ORDER_STATUS).optional(),
+  restaurantId: z.uuid().optional(),
+  assetId: z.uuid().optional(),
+  /** Only preventive maintenance. */
+  pm: z.enum(['1']).optional(),
 })
 export type WorkerTasksQuery = z.infer<typeof workerTasksQuerySchema>
 

@@ -22,11 +22,10 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { Skeleton } from '@/components/ui/skeleton'
-import { toast } from '@/components/ui/toaster'
 import { useRestaurants, useUserOptions } from '@/hooks/useAdminQueries'
 import { useDebouncedValue } from '@/hooks/useDebouncedValue'
 import { auditApi, useAuditLog } from '@/services/platform.service'
-import { describeError } from '@/utils/errors'
+import { reportError } from '@/utils/errors'
 import { formatDateTime } from '@/utils/format'
 
 const PAGE_SIZE = 50
@@ -63,7 +62,7 @@ export function AuditLogPage() {
     try {
       await auditApi.csv(filters)
     } catch (err) {
-      toast.error(describeError(err, t))
+      reportError(err, t)
     } finally {
       setExporting(false)
     }

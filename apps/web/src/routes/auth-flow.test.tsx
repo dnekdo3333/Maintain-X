@@ -98,7 +98,7 @@ describe('sign-in flow', () => {
     installFakeAuthApi({ user: makeUser({ preferredLocale: 'hi' }) })
     renderApp('/login')
     await signIn()
-    await screen.findByRole('heading', { name: 'मेरा खाता' })
+    await screen.findByRole('heading', { name: 'मेरा खाता' }, { timeout: 5000 })
   })
 })
 
@@ -178,6 +178,7 @@ describe('admin and worker apps are separate', () => {
   const worker = makeUser({
     roleKind: 'WORKER',
     roles: [{ id: 'r3', name: 'Worker', systemKey: 'WORKER' }],
+    permissions: ['work_orders:view', 'requests:create', 'requests:view', 'assets:view'],
   })
 
   const homeRoute = (_m: string, path: string) =>

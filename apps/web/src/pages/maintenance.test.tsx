@@ -19,6 +19,7 @@ import i18n from '@/i18n'
 import { appRoutes } from '@/routes/app.routes'
 import { setAccessToken } from '@/services/http'
 import { installFakeAuthApi, json, makeUser } from '@/test/fake-auth-api'
+import { NEW_ACTIONS, WO_DEFAULTS } from '@/test/work-order-fixtures'
 
 const R1 = { id: '11111111-1111-4111-8111-111111111111', name: 'Restaurant 1' }
 const ravi = { id: '22222222-2222-4222-8222-222222222222', firstName: 'Ravi', lastName: 'Kumar' }
@@ -50,6 +51,9 @@ const worker = makeUser({
 
 const step = (o: Partial<ChecklistItemDto>): ChecklistItemDto => ({
   id: 'i1',
+  attachments: [],
+  options: [],
+  requirePhoto: false,
   position: 1,
   title: 'Freezer temperature',
   instruction: null,
@@ -75,7 +79,7 @@ const ACTIONS: WorkOrderActions = {
   hold: true,
   resume: false,
   complete: true,
-  close: false,
+  ...NEW_ACTIONS,
   reopen: false,
   unassign: false,
   upload: false,
@@ -131,6 +135,7 @@ function workOrder(o: Partial<WorkOrderDetail> = {}): WorkOrderDetail {
     attachments: [],
     messages: [],
     history: [],
+    ...WO_DEFAULTS,
     actions: ACTIONS,
     ...o,
   }
@@ -162,8 +167,13 @@ beforeEach(async () => {
 afterEach(() => setAccessToken(null))
 
 describe('worker task checklist', () => {
-  it('saves answers as they are given and unlocks Complete when all required steps are done', async () => {
+  it('saves answers as they are given; the hint counts what is left before completing', async () => {
+    const left = (w: WorkOrderDetail) => w.checklist.filter((c) => c.result === null).length
     let current = workOrder()
+    current = {
+      ...current,
+      completionCheck: { ...current.completionCheck, stepsLeft: left(current) },
+    }
     const answers: Array<{ itemId: string; body: Record<string, unknown> }> = []
     const { container } = renderAt(`/w/tasks/${current.id}`, worker, (method, path, body) => {
       if (method === 'GET' && path === `/work-orders/${current.id}`) return json({ data: current })
@@ -185,6 +195,10 @@ describe('worker task checklist', () => {
                 : { ...c, result: (body.result as ChecklistItemDto['result']) || null },
           ),
         }
+        current = {
+          ...current,
+          completionCheck: { ...current.completionCheck, stepsLeft: left(current) },
+        }
         return json({ data: current })
       }
       return undefined
@@ -192,8 +206,7 @@ describe('worker task checklist', () => {
 
     expect(await screen.findByText('Checklist')).toBeInTheDocument()
     expect(screen.getByText('Allowed -25 to -15 °C')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Complete' })).toBeDisabled()
-    expect(screen.getByText('2 required steps left')).toBeInTheDocument()
+    expect(screen.getByText('2 things left before you can complete')).toBeInTheDocument()
     await expectAccessible(container)
 
     const user = userEvent.setup()
@@ -209,7 +222,10 @@ describe('worker task checklist', () => {
     await waitFor(() =>
       expect(answers[1]).toMatchObject({ itemId: 'i2', body: { result: 'PASS' } }),
     )
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Complete' })).toBeEnabled())
+    await waitFor(() =>
+      expect(screen.queryByText(/left before you can complete/)).not.toBeInTheDocument(),
+    )
+    expect(screen.getByRole('button', { name: 'Complete' })).toBeEnabled()
   })
 })
 

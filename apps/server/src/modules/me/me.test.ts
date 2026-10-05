@@ -158,7 +158,7 @@ describe('worker endpoints', () => {
     })
 
     const home = (await get('/me/home')).body.data as WorkerHome
-    expect(home.counts).toEqual({ today: 1, overdue: 1, inProgress: 1, doneThisWeek: 1 })
+    expect(home.counts).toMatchObject({ today: 1, overdue: 1, inProgress: 1, doneThisWeek: 1 })
     expect(home.next.map((t) => t.title)).toEqual(['started', 'overdue'])
   })
 

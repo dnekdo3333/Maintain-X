@@ -96,9 +96,22 @@
   --duration-base: 180ms;
   --duration-slow: 320ms;
   --ease-out: cubic-bezier(0.2, 0, 0, 1);
+
+  /* Chart series, fixed order (validated categorical palette; never cycled). Identity only;
+     status keeps its own success/warning/danger tokens. Sequential magnitude uses --chart-1. */
+  --chart-1: #2a78d6;
+  --chart-2: #eb6834;
+  --chart-3: #1baf7a;
+  --chart-4: #eda100;
+  --chart-grid: oklch(0.92 0.005 262);
 }
 
 @theme inline {
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-grid: var(--chart-grid);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);

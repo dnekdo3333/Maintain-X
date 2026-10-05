@@ -3,13 +3,16 @@ import {
   UNMUTABLE_NOTIFICATIONS,
   type ListNotificationsQuery,
   type NotificationDto,
+  type NotificationPreferences,
   type NotificationPreferencesInput,
-  type NotificationType,
+  type PushSubscriptionInput,
   type PagedResponse,
 } from '@maintainx/shared'
 import type { Prisma } from '@prisma/client'
 import { NotFoundError } from '../../core/errors.js'
 import { toPagedResponse, toSkipTake } from '../../core/pagination.js'
+import { env } from '../../config/env.js'
+import { emailEnabled, pushEnabled } from '../../core/delivery.js'
 import { prisma } from '../../core/prisma.js'
 import type { AuthContext } from '../auth/auth.context.js'
 
@@ -61,25 +64,35 @@ export async function markAllRead(auth: AuthContext): Promise<{ updated: number 
   return { updated: r.count }
 }
 
-export async function getPreferences(auth: AuthContext): Promise<{ muted: NotificationType[] }> {
+export async function getPreferences(auth: AuthContext): Promise<NotificationPreferences> {
   const rows = await prisma.notificationPreference.findMany({
-    where: { userId: auth.userId, inApp: false },
-    select: { type: true },
+    where: { userId: auth.userId, OR: [{ inApp: false }, { email: true }] },
+    select: { type: true, inApp: true, email: true },
   })
-  return { muted: rows.map((r) => r.type) }
+  return {
+    muted: rows.filter((r) => !r.inApp).map((r) => r.type),
+    email: rows.filter((r) => r.email).map((r) => r.type),
+    channels: {
+      email: emailEnabled(),
+      push: pushEnabled(),
+      pushKey: pushEnabled() ? (env.VAPID_PUBLIC_KEY ?? null) : null,
+    },
+  }
 }
 
 export async function setPreferences(
   auth: AuthContext,
   input: NotificationPreferencesInput,
-): Promise<{ muted: NotificationType[] }> {
+): Promise<NotificationPreferences> {
   const muted = new Set(input.muted.filter((t) => !UNMUTABLE_NOTIFICATIONS.includes(t)))
+  const current = input.email ? null : await getPreferences(auth)
+  const email = new Set(input.email ?? current!.email)
   await prisma.$transaction(
     NOTIFICATION_TYPE.map((type) =>
       prisma.notificationPreference.upsert({
         where: { userId_type: { userId: auth.userId, type } },
-        create: { userId: auth.userId, type, inApp: !muted.has(type) },
-        update: { inApp: !muted.has(type) },
+        create: { userId: auth.userId, type, inApp: !muted.has(type), email: email.has(type) },
+        update: { inApp: !muted.has(type), email: email.has(type) },
       }),
     ),
   )
@@ -92,4 +105,27 @@ export async function pruneNotifications(now = new Date()): Promise<number> {
     where: { readAt: { lt: new Date(now.getTime() - 90 * 86_400_000) } },
   })
   return r.count
+}
+
+/** Remembers this browser for Web Push (an endpoint belongs to one user at a time). */
+export async function subscribePush(
+  auth: AuthContext,
+  input: PushSubscriptionInput,
+  userAgent?: string,
+) {
+  await prisma.pushSubscription.upsert({
+    where: { endpoint: input.endpoint },
+    create: {
+      userId: auth.userId,
+      endpoint: input.endpoint,
+      p256dh: input.keys.p256dh,
+      auth: input.keys.auth,
+      userAgent: userAgent?.slice(0, 300) ?? null,
+    },
+    update: { userId: auth.userId, p256dh: input.keys.p256dh, auth: input.keys.auth },
+  })
+}
+
+export async function unsubscribePush(auth: AuthContext, endpoint: string) {
+  await prisma.pushSubscription.deleteMany({ where: { endpoint, userId: auth.userId } })
 }

@@ -17,6 +17,7 @@ export function WorkerPageHeader({ title, backTo, actions, className }: WorkerPa
   const { t } = useTranslation()
   return (
     <header
+      data-m="w-header"
       className={cn(
         'glass sticky top-0 z-20 flex h-14 items-center gap-1 border-b px-2 lg:h-16 lg:px-6',
         !backTo && 'px-4',

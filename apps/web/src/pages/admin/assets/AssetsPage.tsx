@@ -1,4 +1,9 @@
-import { ASSET_SORT_FIELDS, ASSET_STATUS, type AssetListItem } from '@maintainx/shared'
+import {
+  ASSET_CRITICALITY,
+  ASSET_SORT_FIELDS,
+  ASSET_STATUS,
+  type AssetListItem,
+} from '@maintainx/shared'
 import { createColumnHelper } from '@tanstack/react-table'
 import { Package, Plus, Printer, Tags } from 'lucide-react'
 import { useEffect, useState } from 'react'
@@ -21,7 +26,7 @@ import { formatDate } from '@/utils/format'
 import { enumLabel } from '@/utils/i18n'
 import { CategoriesSheet } from './CategoriesSheet'
 
-const FILTERS = ['restaurantId', 'categoryId', 'status', 'locationId'] as const
+const FILTERS = ['restaurantId', 'categoryId', 'status', 'criticality', 'locationId'] as const
 const TABLE_CONFIG = {
   sortFields: ASSET_SORT_FIELDS,
   defaultSort: { field: 'name', direction: 'asc' },
@@ -66,6 +71,11 @@ export function AssetsPage() {
             {a.assetCode}
             {a.serialNumber && ` · ${a.serialNumber}`}
           </p>
+          {a.parent && (
+            <p className="text-xs text-muted-foreground">
+              {t('assets.partOf', { name: a.parent.name })}
+            </p>
+          )}
         </div>
       ),
     }),
@@ -83,6 +93,11 @@ export function AssetsPage() {
       id: 'location',
       header: t('assets.colLocation'),
       meta: { hideBelow: 'lg' },
+    }),
+    col.accessor('criticality', {
+      header: t('assets.criticality'),
+      meta: { hideBelow: 'md' },
+      cell: (c) => <StatusBadge kind="assetCriticality" value={c.getValue()} />,
     }),
     col.accessor('status', {
       header: t('assets.colStatus'),
@@ -181,6 +196,15 @@ export function AssetsPage() {
               options={ASSET_STATUS.map((s) => ({
                 value: s,
                 label: enumLabel(t, 'assetStatus', s),
+              }))}
+            />
+            <FilterSelect
+              label={t('assets.criticality')}
+              value={table.state.filters.criticality}
+              onChange={(v) => table.setFilter('criticality', v)}
+              options={ASSET_CRITICALITY.map((c) => ({
+                value: c,
+                label: enumLabel(t, 'assetCriticality', c),
               }))}
             />
           </>

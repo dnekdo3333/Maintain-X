@@ -22,10 +22,14 @@ import { useAuth } from '@/contexts/AuthContext'
  */
 export function WorkerMorePage() {
   const { t } = useTranslation()
-  const { logout } = useAuth()
+  const { logout, can } = useAuth()
   const items: Array<{ to: string; label: string; icon: LucideIcon }> = [
-    { to: '/w/schedule', label: t('nav.schedule'), icon: CalendarDays },
-    { to: '/w/checklists', label: t('nav.checklists'), icon: ClipboardCheck },
+    ...(can('work_orders:view')
+      ? [{ to: '/w/schedule', label: t('nav.schedule'), icon: CalendarDays }]
+      : []),
+    ...(can('inspections:view')
+      ? [{ to: '/w/checklists', label: t('nav.checklists'), icon: ClipboardCheck }]
+      : []),
     { to: '/w/report', label: t('report.title'), icon: Megaphone },
     { to: '/w/reports', label: t('report.mine'), icon: Inbox },
     { to: '/w/assets', label: t('nav.myAssets'), icon: Package },

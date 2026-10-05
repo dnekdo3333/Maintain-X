@@ -1,5 +1,6 @@
 import type { TFunction } from 'i18next'
 import {
+  CalendarDays,
   BarChart3,
   Boxes,
   Building2,
@@ -14,6 +15,9 @@ import {
   Inbox,
   LayoutDashboard,
   Package,
+  Zap,
+  TrendingUp,
+  PackageCheck,
   ShieldCheck,
   UserRound,
   Users,
@@ -52,6 +56,13 @@ export function adminNavigation(t: TFunction): NavGroup[] {
           permission: 'work_orders:view',
         },
         {
+          key: 'calendar',
+          label: t('nav.calendar'),
+          to: '/calendar',
+          icon: CalendarDays,
+          permission: 'work_orders:view',
+        },
+        {
           key: 'requests',
           label: t('nav.requests'),
           to: '/requests',
@@ -79,6 +90,20 @@ export function adminNavigation(t: TFunction): NavGroup[] {
           icon: ListChecks,
           permission: 'procedures:view',
         },
+        {
+          key: 'automations',
+          label: t('nav.automations'),
+          to: '/automations',
+          icon: Zap,
+          permission: 'automations:view',
+        },
+        {
+          key: 'analytics',
+          label: t('nav.analytics'),
+          to: '/analytics',
+          icon: TrendingUp,
+          permission: 'reports:view',
+        },
       ],
     },
     {
@@ -91,6 +116,13 @@ export function adminNavigation(t: TFunction): NavGroup[] {
           to: '/inventory',
           icon: Boxes,
           permission: 'parts:view',
+        },
+        {
+          key: 'stock-counts',
+          label: t('nav.stockCounts'),
+          to: '/stock-counts',
+          icon: PackageCheck,
+          permission: 'inventory:view',
         },
         {
           key: 'purchase-orders',

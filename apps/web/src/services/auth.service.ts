@@ -7,6 +7,7 @@ import type {
   LoginInput,
 } from '@maintainx/shared'
 import { ApiError, http, setAccessToken, setRefreshHandler } from './http'
+import { clearOfflineData } from './offline'
 
 /*
  * Session lifecycle for the web app. Components use the AuthProvider/useAuth;
@@ -112,6 +113,8 @@ export async function logout(): Promise<void> {
   } catch {
     // Signing out locally must always work, even offline.
   }
+  // Nothing of this user stays on a shared device.
+  await clearOfflineData()
   setAccessToken(null)
   emit({ type: 'signedOut', reason: 'logout' })
 }

@@ -9,6 +9,7 @@ import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { createApp } from '../../app.js'
 import { prisma } from '../../core/prisma.js'
 import { TEST_PASSWORD, createFixture, resetDatabase, type Fixture } from '../../test/db.js'
+import { giveEvidence, report as repairReport } from '../../test/work-orders.js'
 import { ensureDefaultCategories } from '../assets/categories.service.js'
 import { deriveTitle } from '../requests/requests.service.js'
 
@@ -147,7 +148,7 @@ describe('requests', () => {
 
     // Admin sees and may act; admin of another restaurant gets 404.
     const seen = (await admin.get(`/requests/${r.id}`)).body.data as RequestDetail
-    expect(seen.can).toEqual({ convert: true, reject: true })
+    expect(seen.can).toEqual({ convert: true, reject: true, approve: true })
     expect((await admin2.get(`/requests/${r.id}`)).status).toBe(404)
   })
 
@@ -198,7 +199,7 @@ describe('requests', () => {
       status: 'REJECTED',
       rejectionReason: 'Duplicate of REQ-1',
     })
-    expect(res.body.data.can).toEqual({ convert: false, reject: false })
+    expect(res.body.data.can).toEqual({ convert: false, reject: false, approve: false })
     expect((await admin.post(`/requests/${r.id}/reject`, { reason: 'Again' })).status).toBe(403)
   })
 
@@ -245,14 +246,15 @@ describe('work orders', () => {
     expect((await worker.post('/work-orders', wo())).status).toBe(403)
   })
 
-  it('runs the full lifecycle: start → hold → resume → complete → review → close → reopen', async () => {
+  it('runs the full lifecycle: start → hold → resume → complete → verify (closed) → reopen', async () => {
     const w = await assigned()
-    expect(w.actions).toMatchObject({ assign: true, close: false }) // admin view
+    expect(w.actions).toMatchObject({ assign: true, verify: false }) // admin view
 
     const mine = (await worker.get(`/work-orders/${w.id}`)).body.data as WorkOrderDetail
-    expect(mine.actions).toMatchObject({ start: true, assign: false, close: false, edit: false })
+    expect(mine.actions).toMatchObject({ start: true, assign: false, verify: false, edit: false })
 
     let s = (await worker.post(`/work-orders/${w.id}/start`)).body.data as WorkOrderDetail
+    await giveEvidence(w.id, ids.worker)
     expect(s).toMatchObject({ status: 'IN_PROGRESS', timerRunning: true })
     expect((await worker.post(`/work-orders/${w.id}/hold`, { reason: '' })).status).toBe(400)
     s = (await worker.post(`/work-orders/${w.id}/hold`, { reason: 'Waiting for gas' })).body.data
@@ -264,14 +266,17 @@ describe('work orders', () => {
     s = (await worker.post(`/work-orders/${w.id}/resume`)).body.data
     expect(s).toMatchObject({ status: 'IN_PROGRESS', timerRunning: true })
 
-    // Close is not allowed before review.
-    expect((await admin.post(`/work-orders/${w.id}/close`, { note: '' })).status).toBe(403)
+    // Verification is not possible before the work is submitted.
+    expect((await admin.post(`/work-orders/${w.id}/verify`, { note: '' })).status).toBe(403)
 
     s = (
-      await worker.post(`/work-orders/${w.id}/complete`, {
-        notes: 'Replaced the gasket',
-        assetStatus: 'OPERATIONAL',
-      })
+      await worker.post(
+        `/work-orders/${w.id}/complete`,
+        repairReport({
+          notes: 'Replaced the gasket',
+          assetStatus: 'OPERATIONAL',
+        }),
+      )
     ).body.data
     expect(s).toMatchObject({
       status: 'REVIEW',
@@ -287,25 +292,45 @@ describe('work orders', () => {
     })
     expect(assetEvents.map((e) => e.eventType)).toContain('WORK_ORDER_COMPLETED')
 
-    s = (await admin.post(`/work-orders/${w.id}/close`, { note: 'Checked' })).body.data
-    expect(s).toMatchObject({ status: 'CLOSED', closedBy: { id: ids.admin } })
+    s = (await admin.post(`/work-orders/${w.id}/verify`, { note: 'Checked' })).body.data
+    expect(s).toMatchObject({
+      status: 'CLOSED',
+      closedBy: { id: ids.admin },
+      verifiedBy: { id: ids.admin },
+    })
+    expect(s.history.slice(0, 2).map((h) => h.toStatus)).toEqual(['CLOSED', 'VERIFIED'])
     expect(s.actions).toMatchObject({ reopen: true, message: false, upload: false })
 
     expect(
       (await worker.post(`/work-orders/${w.id}/reopen`, { reason: 'Still warm' })).status,
     ).toBe(403)
     s = (await admin.post(`/work-orders/${w.id}/reopen`, { reason: 'Still warm' })).body.data
-    expect(s).toMatchObject({ status: 'ASSIGNED', reopenCount: 1, closedAt: null })
+    expect(s).toMatchObject({
+      status: 'REOPENED',
+      reopenCount: 1,
+      closedAt: null,
+      verifiedAt: null,
+      rejectionReason: 'Still warm',
+    })
+    // The technician picks it up again from REOPENED.
+    s = (await worker.post(`/work-orders/${w.id}/start`)).body.data
+    expect(s.status).toBe('IN_PROGRESS')
   })
 
   it('rejects actions that are invalid for the current status', async () => {
     const w = await assigned()
     expect(
-      (await worker.post(`/work-orders/${w.id}/complete`, { notes: 'done', assetStatus: '' }))
-        .status,
+      (
+        await worker.post(
+          `/work-orders/${w.id}/complete`,
+          repairReport({ notes: 'done', assetStatus: '' }),
+        )
+      ).status,
     ).toBe(403)
     expect((await worker.post(`/work-orders/${w.id}/resume`)).status).toBe(403)
     await worker.post(`/work-orders/${w.id}/start`)
+    await giveEvidence(w.id, ids.worker)
+    await giveEvidence(w.id, ids.worker)
     expect((await worker.post(`/work-orders/${w.id}/start`)).status).toBe(403)
   })
 

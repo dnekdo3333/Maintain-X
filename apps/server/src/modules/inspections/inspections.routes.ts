@@ -7,10 +7,12 @@ import {
 } from '@maintainx/shared'
 import { Router } from 'express'
 import { z } from 'zod'
+import { parseUploads } from '../../core/attachments.js'
 import { requirePermission } from '../../core/authz.js'
 import { sendCreated, sendData } from '../../core/http.js'
 import { parseBody, parseParams, parseQuery } from '../../core/validate.js'
 import { getAuth, requireAuth } from '../../middleware/authenticate.js'
+import { createRateLimiter } from '../../middleware/security.js'
 import * as service from './inspections.service.js'
 
 export const inspectionsRouter = Router()
@@ -73,3 +75,24 @@ inspectionsRouter.delete('/inspections/:id', view, async (req, res) => {
   await service.discardInspection(getAuth(req), id, req)
   res.status(204).end()
 })
+
+/** A photo or signature for one inspection step. */
+inspectionsRouter.post(
+  '/inspections/:id/items/:itemId/attachments',
+  createRateLimiter({ windowMs: 60_000, limit: 30 }),
+  requirePermission('inspections:edit'),
+  parseUploads,
+  async (req, res) => {
+    const { id, itemId } = parseParams(itemParams, req)
+    sendData(
+      res,
+      await service.uploadInspectionStepAttachment(
+        getAuth(req),
+        id,
+        itemId,
+        req.files as Express.Multer.File[],
+        req,
+      ),
+    )
+  },
+)

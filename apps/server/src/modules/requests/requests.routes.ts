@@ -1,4 +1,5 @@
 import {
+  approveRequestSchema,
   createRequestSchema,
   idParamSchema,
   listRequestsQuerySchema,
@@ -57,6 +58,18 @@ requestsRouter.post(
     sendData(
       res,
       await service.rejectRequest(getAuth(req), id, parseBody(rejectRequestSchema, req), req),
+    )
+  },
+)
+
+requestsRouter.post(
+  '/requests/:id/approve',
+  requirePermission('requests:approve'),
+  async (req, res) => {
+    const { id } = parseParams(idParamSchema, req)
+    sendData(
+      res,
+      await service.approveRequest(getAuth(req), id, parseBody(approveRequestSchema, req), req),
     )
   },
 )

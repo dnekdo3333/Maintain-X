@@ -1,4 +1,6 @@
 import type {
+  NotificationPreferences,
+  PushSubscriptionInput,
   ApiResponse,
   AuditLogDto,
   DocumentDto,
@@ -10,7 +12,7 @@ import type {
   ReportResult,
 } from '@maintainx/shared'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
-import { downloadFile, http, type QueryValue } from './http'
+import { downloadFile, http, request, type QueryValue } from './http'
 
 const unwrap = <T>(p: Promise<ApiResponse<T>>) => p.then((r) => r.data)
 
@@ -27,14 +29,18 @@ export const notificationsApi = {
   readAll: () => unwrap(http.post<ApiResponse<{ updated: number }>>('/notifications/read-all')),
   preferences: (signal?: AbortSignal) =>
     unwrap(
-      http.get<ApiResponse<{ muted: NotificationType[] }>>('/notifications/preferences', {
-        signal,
+      http.get<ApiResponse<NotificationPreferences>>('/notifications/preferences', { signal }),
+    ),
+  setPreferences: (muted: NotificationType[], email?: NotificationType[]) =>
+    unwrap(
+      http.put<ApiResponse<NotificationPreferences>>('/notifications/preferences', {
+        muted,
+        ...(email ? { email } : {}),
       }),
     ),
-  setPreferences: (muted: NotificationType[]) =>
-    unwrap(
-      http.put<ApiResponse<{ muted: NotificationType[] }>>('/notifications/preferences', { muted }),
-    ),
+  subscribePush: (input: PushSubscriptionInput) => http.post<void>('/notifications/push', input),
+  unsubscribePush: (endpoint: string) =>
+    request<void>('/notifications/push', { method: 'DELETE', body: { endpoint } }),
 }
 
 export const documentsApi = {

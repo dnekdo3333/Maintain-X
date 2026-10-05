@@ -1,7 +1,9 @@
 import { z } from 'zod'
 import {
+  ASSET_CRITICALITY,
   ASSET_STATUS,
   LOCATION_TYPE,
+  type AssetCriticality,
   type AssetEventType,
   type AssetStatus,
   type LocationType,
@@ -23,6 +25,8 @@ const optionalDate = z.iso.date().or(z.literal(''))
 
 export const locationSchema = z.object({
   restaurantId: z.uuid(),
+  /** Parent in the site tree (building → floor → area → room); '' = top level. Omitted = unchanged. */
+  parentId: z.uuid().or(z.literal('')).optional(),
   name: z.string().trim().min(1).max(80),
   type: z.enum(LOCATION_TYPE),
   description: optionalText(300),
@@ -36,10 +40,36 @@ export const listLocationsQuerySchema = z.object({
 export interface LocationDto {
   id: string
   restaurantId: string
+  parentId: string | null
+  /** For the location QR code (/l/<publicId>). */
+  publicId: string
   name: string
   type: LocationType
   description: string | null
   assetCount: number
+}
+
+/** Location QR landing: where you are, what is here, what is wrong here. */
+export interface LocationLanding {
+  id: string
+  publicId: string
+  name: string
+  type: LocationType
+  description: string | null
+  restaurant: { id: string; code: string; name: string }
+  /** Root first, e.g. Main building › Ground floor. */
+  path: Array<{ id: string; name: string; type: LocationType }>
+  children: Array<{ id: string; name: string; type: LocationType }>
+  assets: Array<{
+    id: string
+    publicId: string
+    assetCode: string
+    name: string
+    status: AssetStatus
+    criticality: AssetCriticality
+  }>
+  openWorkOrders: AssetWorkOrderItem[]
+  can: { report: boolean }
 }
 
 // --------------------------------------------------------------- categories
@@ -84,6 +114,10 @@ export const assetSchema = z
     categoryId: z.uuid(),
     restaurantId: z.uuid(),
     locationId: z.uuid().or(z.literal('')),
+    /** Parent asset (this one is a component of it); omitted = unchanged. */
+    parentId: z.uuid().or(z.literal('')).optional(),
+    criticality: z.enum(ASSET_CRITICALITY).optional(),
+    installDate: optionalDate.optional(),
     manufacturer: optionalText(80),
     model: optionalText(80),
     serialNumber: optionalText(80),
@@ -111,6 +145,14 @@ export const assetStatusChangeSchema = z.object({
 })
 export type AssetStatusChangeInput = z.infer<typeof assetStatusChangeSchema>
 
+/** Move an asset (and its components) to another restaurant / location. */
+export const assetTransferSchema = z.object({
+  restaurantId: z.uuid(),
+  locationId: z.uuid().or(z.literal('')),
+  note: z.string().trim().min(3).max(500),
+})
+export type AssetTransferInput = z.infer<typeof assetTransferSchema>
+
 export const ASSET_SORT_FIELDS = ['name', 'assetCode', 'warrantyEnd', 'createdAt'] as const
 
 export const listAssetsQuerySchema = paginationQuerySchema.extend({
@@ -120,6 +162,10 @@ export const listAssetsQuerySchema = paginationQuerySchema.extend({
   locationId: z.uuid().optional(),
   categoryId: z.uuid().optional(),
   status: z.enum(ASSET_STATUS).optional(),
+  criticality: z.enum(ASSET_CRITICALITY).optional(),
+  /** Only top-level assets (no parent). */
+  topLevel: z.enum(['1']).optional(),
+  parentId: z.uuid().optional(),
 })
 export type ListAssetsQuery = z.infer<typeof listAssetsQuerySchema>
 
@@ -143,9 +189,11 @@ export interface AssetListItem {
   assetCode: string
   name: string
   status: AssetStatus
+  criticality: AssetCriticality
   category: { id: string; name: string }
   restaurant: { id: string; code: string; name: string }
   location: { id: string; name: string } | null
+  parent: { id: string; name: string; assetCode: string } | null
   manufacturer: string | null
   model: string | null
   serialNumber: string | null
@@ -172,8 +220,26 @@ export interface AssetWorkOrderItem {
   dueDate: string | null
 }
 
+/** Maintenance spend in rupees. */
+export interface CostBreakdown {
+  parts: number
+  labour: number
+  vendor: number
+  other: number
+  total: number
+}
+
 export interface AssetDetail extends AssetListItem {
   vendor: { id: string; name: string; phone: string | null } | null
+  installDate: string | null
+  /** Components of this asset. */
+  children: Array<{ id: string; name: string; assetCode: string; status: AssetStatus }>
+  /** Lifetime maintenance cost of this asset. */
+  cost: CostBreakdown
+  /** All work orders ever raised on the asset, and how many were failures (reactive). */
+  workOrderStats: { total: number; reactive: number; completed: number }
+  /** Recently finished jobs, newest first. */
+  recentWorkOrders: AssetWorkOrderItem[]
   purchaseDate: string | null
   purchaseCost: string | null
   warrantyStart: string | null
@@ -185,5 +251,5 @@ export interface AssetDetail extends AssetListItem {
   downSince: string | null
   openWorkOrders: AssetWorkOrderItem[]
   history: AssetHistoryItem[]
-  can: { edit: boolean; delete: boolean }
+  can: { edit: boolean; delete: boolean; transfer: boolean }
 }

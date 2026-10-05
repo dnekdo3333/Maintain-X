@@ -35,6 +35,9 @@ export interface UserListItem {
   mustChangePassword: boolean
   lastLoginAt: string | null
   createdAt: string
+  jobTitle: string | null
+  /** Labour cost per hour (rupees) as a decimal string, or null. */
+  hourlyRate: string | null
   role: RoleRef | null
   /** Only restaurants the viewer can see. */
   restaurants: RestaurantRef[]
@@ -91,5 +94,30 @@ export interface RestaurantDto extends RestaurantRef {
   opensAt: string | null
   closesAt: string | null
   status: RestaurantStatus
+  manager: UserRef | null
+  contactName: string | null
   createdAt: string
+}
+
+/** Everything that hangs off one restaurant, for its overview page. */
+export interface RestaurantStats {
+  locations: number
+  assets: number
+  /** Assets not operational right now (broken or under maintenance). */
+  assetsDown: number
+  users: number
+  workers: number
+  teams: number
+  vendors: number
+  parts: number
+  lowStock: number
+  procedures: number
+  openRequests: number
+  openWorkOrders: number
+  overdueWorkOrders: number
+  completed30d: number
+  inspections30d: number
+  failedInspections30d: number
+  /** Maintenance spend in the last 30 days. */
+  cost30d: number
 }

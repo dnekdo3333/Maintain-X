@@ -1,5 +1,5 @@
-import { fullName, type WorkOrderDetail } from '@maintainx/shared'
-import { CheckCircle2, Pause, Play, Timer } from 'lucide-react'
+import { WORK_ORDER_ACTIVE_STATUSES, fullName, type WorkOrderDetail } from '@maintainx/shared'
+import { CheckCircle2, Pause, Phone, Play, Timer } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Link, useParams } from 'react-router'
 import { Checklist } from '@/components/checklists/Checklist'
@@ -11,14 +11,16 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { BottomActionBar } from '@/components/worker/BottomActionBar'
 import { WorkerPageHeader } from '@/components/worker/WorkerPageHeader'
-import { AttachmentGallery, PhotoUploadButton } from '@/components/work-orders/Attachments'
+import { AttachmentGallery } from '@/components/work-orders/Attachments'
+import { CompletionSummary } from '@/components/work-orders/CompletionSummary'
+import { EvidencePanel } from '@/components/work-orders/EvidencePanel'
 import { MessagesPanel } from '@/components/work-orders/Timeline'
 import { WorkOrderDialogs } from '@/components/work-orders/WorkOrderDialogs'
 import { WorkOrderParts } from '@/components/work-orders/WorkOrderParts'
 import { useWorkOrderActions } from '@/components/work-orders/useWorkOrderActions'
 import { useWorkOrder } from '@/services/work-orders.service'
 import { cn } from '@/utils/cn'
-import { DUE_TONE_CLASS, describeDue, formatDuration } from '@/utils/format'
+import { DUE_TONE_CLASS, describeDue, formatDateTime, formatDuration } from '@/utils/format'
 
 /** One task: read it, start it, pause it, add photos and notes, complete it. */
 export function WorkerTaskPage() {
@@ -52,9 +54,15 @@ export function WorkerTaskPage() {
 function Task({ w }: { w: WorkOrderDetail }) {
   const { t } = useTranslation()
   const a = useWorkOrderActions(w)
-  const done = ['COMPLETED', 'REVIEW', 'CLOSED'].includes(w.status)
+  const done = !(WORK_ORDER_ACTIVE_STATUSES as readonly string[]).includes(w.status)
   const due = w.dueDate && !done ? describeDue(w.dueDate, t) : null
   const progress = checklistProgress(w.checklist)
+  const check = w.completionCheck
+  const blockers =
+    check.stepsLeft +
+    Number(check.needsBeforePhoto) +
+    Number(check.needsAfterPhoto) +
+    check.subWorkOrdersOpen
   const where = [w.asset?.name, w.location?.name, w.restaurant.name].filter(Boolean).join(' · ')
 
   const primary = w.actions.start ? (
@@ -70,11 +78,7 @@ function Task({ w }: { w: WorkOrderDetail }) {
       <Button variant="secondary" size="xl" onClick={() => a.setDialog('hold')}>
         <Pause aria-hidden /> {t('wo.hold')}
       </Button>
-      <Button
-        size="xl"
-        disabled={progress.requiredLeft > 0}
-        onClick={() => a.setDialog('complete')}
-      >
+      <Button size="xl" onClick={() => a.setDialog('complete')}>
         <CheckCircle2 aria-hidden /> {t('wo.complete')}
       </Button>
     </>
@@ -131,9 +135,36 @@ function Task({ w }: { w: WorkOrderDetail }) {
             {t('wo.sentForReviewBody')}
           </Callout>
         )}
-        {w.status === 'ASSIGNED' && w.assignedTeam && !w.assignedUser && (
-          <Callout tone="neutral">{t('wo.teamTaskHint', { team: w.assignedTeam.name })}</Callout>
+        {w.status === 'REOPENED' && w.rejectionReason && (
+          <Callout tone="danger" title={t('wo.reworkTitle')}>
+            {w.rejectionReason}
+          </Callout>
         )}
+        {w.status === 'CANCELLED' && (
+          <Callout tone="warning" title={t('wo.cancelledTitle')}>
+            {w.cancelReason}
+          </Callout>
+        )}
+        {w.scheduledStart && (w.status === 'SCHEDULED' || w.status === 'ASSIGNED') && (
+          <Callout tone="info">
+            {t('wo.plannedFor', { time: formatDateTime(w.scheduledStart) })}
+          </Callout>
+        )}
+        {w.helpers.length > 0 && (
+          <p className="text-13 text-muted-foreground">
+            {t('wo.crew', {
+              names: [w.assignedUser, ...w.helpers]
+                .filter((p) => p !== null)
+                .map((p) => fullName(p))
+                .join(', '),
+            })}
+          </p>
+        )}
+        {(w.status === 'ASSIGNED' || w.status === 'SCHEDULED') &&
+          w.assignedTeam &&
+          !w.assignedUser && (
+            <Callout tone="neutral">{t('wo.teamTaskHint', { team: w.assignedTeam.name })}</Callout>
+          )}
 
         {w.sourceRequest && (
           <section className="grid gap-2 rounded-lg border p-3">
@@ -158,9 +189,10 @@ function Task({ w }: { w: WorkOrderDetail }) {
                 {t('checklist.progress', { done: progress.answered, total: w.checklist.length })}
               </span>
             </div>
-            {(w.status === 'ASSIGNED' || w.status === 'ON_HOLD') && (
-              <Callout tone="neutral">{t('checklist.startFirst')}</Callout>
-            )}
+            {!w.actions.checklist &&
+              (WORK_ORDER_ACTIVE_STATUSES as readonly string[]).includes(w.status) && (
+                <Callout tone="neutral">{t('checklist.startFirst')}</Callout>
+              )}
             {w.actions.checklist && progress.failed > 0 && (
               <Callout tone="warning">
                 {t('checklist.failedHint', { count: progress.failed })}
@@ -170,12 +202,13 @@ function Task({ w }: { w: WorkOrderDetail }) {
               items={w.checklist}
               editable={w.actions.checklist}
               onAnswer={a.answer}
+              onUpload={a.uploadStep}
               correctiveLinkBase={null}
             />
           </section>
         )}
 
-        {(w.parts.length > 0 || w.actions.parts) && (
+        {(w.parts.length > 0 || w.actions.parts || w.reservations.length > 0) && (
           <section className="grid gap-2" aria-labelledby="task-parts">
             <h3 id="task-parts" className="text-sm font-semibold">
               {t('woParts.title')}
@@ -186,34 +219,76 @@ function Task({ w }: { w: WorkOrderDetail }) {
 
         <section className="grid gap-2" aria-labelledby="task-photos">
           <h3 id="task-photos" className="text-sm font-semibold">
-            {t('wo.photos')}
+            {t('evidence.title')}
           </h3>
-          <AttachmentGallery items={w.attachments} className="grid grid-cols-3 gap-2" />
-          {w.actions.upload && (
-            <PhotoUploadButton size="xl" className="justify-start" upload={a.upload} />
-          )}
+          <EvidencePanel w={w} upload={a.upload} large />
         </section>
+
+        {w.completion && (
+          <section className="grid gap-2 rounded-lg border p-3" aria-labelledby="task-report">
+            <h3 id="task-report" className="text-sm font-semibold">
+              {t('completion.reportTitle')}
+            </h3>
+            <CompletionSummary report={w.completion} />
+          </section>
+        )}
+
+        {w.contacts.length > 0 && (
+          <section className="grid gap-2" aria-labelledby="task-contacts">
+            <h3 id="task-contacts" className="text-sm font-semibold">
+              {t('wo.contacts')}
+            </h3>
+            <ul className="grid gap-2">
+              {w.contacts.map((c) => (
+                <li
+                  key={`${c.role}-${c.name}`}
+                  className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2"
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-medium">{c.name}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {t(`wo.contactRole_${c.role}`)}
+                    </span>
+                  </span>
+                  {c.phone && (
+                    <Button asChild variant="secondary" size="sm">
+                      <a href={`tel:${c.phone.replace(/\s/g, '')}`}>
+                        <Phone aria-hidden /> {t('wo.call')}
+                      </a>
+                    </Button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
 
         <section className="grid gap-2" aria-labelledby="task-notes">
           <h3 id="task-notes" className="text-sm font-semibold">
             {t('wo.messages')}
           </h3>
-          <MessagesPanel messages={w.messages} canSend={w.actions.message} send={a.message} />
+          <MessagesPanel
+            messages={w.messages}
+            canSend={w.actions.message}
+            canInternal={w.actions.internalNotes}
+            workOrderId={w.id}
+            send={a.message}
+          />
         </section>
       </div>
 
       {primary && (
         <BottomActionBar
           hint={
-            w.actions.complete && progress.requiredLeft > 0
-              ? t('checklist.stepsLeft', { count: progress.requiredLeft })
+            w.actions.complete && blockers > 0
+              ? t('completion.blockers', { count: blockers })
               : undefined
           }
         >
           {primary}
         </BottomActionBar>
       )}
-      <WorkOrderDialogs workOrder={w} actions={a} />
+      <WorkOrderDialogs workOrder={w} actions={a} large />
     </>
   )
 }

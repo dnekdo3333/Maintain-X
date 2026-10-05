@@ -17,12 +17,12 @@ export const PERMISSION_GROUPS: ReadonlyArray<{ key: string; resources: readonly
   },
   {
     key: 'assets',
-    resources: ['assets', 'qr', 'maintenance', 'procedures', 'inspections', 'documents'],
+    resources: ['assets', 'meters', 'qr', 'maintenance', 'procedures', 'inspections', 'documents'],
   },
   { key: 'stock', resources: ['inventory', 'parts', 'vendors', 'purchase_orders'] },
   { key: 'organization', resources: ['restaurants', 'locations', 'users', 'teams'] },
   { key: 'insights', resources: ['reports', 'audit_logs'] },
-  { key: 'system', resources: ['roles', 'settings'] },
+  { key: 'system', resources: ['roles', 'settings', 'automations'] },
 ]
 
 /** Which permissions a role of this kind may hold at all (mirrors the server rules). */

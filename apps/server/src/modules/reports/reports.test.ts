@@ -10,6 +10,7 @@ import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { createApp } from '../../app.js'
 import { prisma } from '../../core/prisma.js'
 import { TEST_PASSWORD, createFixture, resetDatabase, type Fixture } from '../../test/db.js'
+import { giveEvidence, report } from '../../test/work-orders.js'
 
 const app = createApp()
 let fx: Fixture
@@ -77,7 +78,9 @@ async function doneJob(title: string) {
     })
   ).body.data as WorkOrderDetail
   await worker.post(`/work-orders/${w.id}/start`)
-  await worker.post(`/work-orders/${w.id}/complete`, { notes: 'Fixed it', assetStatus: '' })
+  await giveEvidence(w.id, ids.worker)
+  await giveEvidence(w.id, ids.worker)
+  await worker.post(`/work-orders/${w.id}/complete`, report({ notes: 'Fixed it', assetStatus: '' }))
   return w
 }
 

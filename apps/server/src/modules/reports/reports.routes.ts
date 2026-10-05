@@ -7,7 +7,7 @@ import { sendData } from '../../core/http.js'
 import { parseParams, parseQuery } from '../../core/validate.js'
 import { getAuth, requireAuth } from '../../middleware/authenticate.js'
 import { createRateLimiter } from '../../middleware/security.js'
-import { runReport } from './reports.service.js'
+import { analyticsTrends, runReport } from './reports.service.js'
 
 /** Reports scan a lot of rows: keep bursts in check. */
 const reportLimiter = createRateLimiter({ windowMs: 60_000, limit: 60 })
@@ -15,6 +15,14 @@ const keyParam = z.object({ key: z.enum(REPORT_KEYS) })
 
 export const reportsRouter = Router()
 reportsRouter.use('/reports', ...requireAuth(), reportLimiter)
+
+reportsRouter.get(
+  '/reports/analytics/trends',
+  requirePermission('reports:view'),
+  async (req, res) => {
+    sendData(res, await analyticsTrends(getAuth(req), parseQuery(reportQuerySchema, req)))
+  },
+)
 
 reportsRouter.get('/reports/:key', requirePermission('reports:view'), async (req, res) => {
   const { key } = parseParams(keyParam, req)

@@ -1,9 +1,11 @@
 import {
   WORK_ORDER_ACTIVE_STATUSES,
+  WORK_ORDER_DONE_STATUSES,
   type AssetDetail,
   type AssetInput,
   type AssetListItem,
   type AssetStatusChangeInput,
+  type AssetTransferInput,
   type ListAssetsQuery,
   type PagedResponse,
 } from '@maintainx/shared'
@@ -11,6 +13,7 @@ import type { AssetStatus, Prisma } from '@prisma/client'
 import type { Request } from 'express'
 import { recordAudit } from '../../core/audit.js'
 import { canAccessRestaurant, hasPermission, restaurantScope } from '../../core/authz.js'
+import { costBreakdown } from '../../core/costs.js'
 import { nextCode } from '../../core/counters.js'
 import { NotFoundError, ValidationError } from '../../core/errors.js'
 import { generatePublicId } from '../../core/ids.js'
@@ -19,7 +22,7 @@ import { prisma } from '../../core/prisma.js'
 import type { AuthContext } from '../auth/auth.context.js'
 
 /** An asset in one of these states isn't doing its job: downtime is counted. */
-const DOWN_STATUSES: ReadonlySet<AssetStatus> = new Set(['BROKEN', 'UNDER_MAINTENANCE'])
+export const DOWN_STATUSES: ReadonlySet<AssetStatus> = new Set(['BROKEN', 'UNDER_MAINTENANCE'])
 const HISTORY_LIMIT = 50
 const DAY = 86_400_000
 
@@ -27,6 +30,7 @@ const listInclude = {
   category: { select: { id: true, name: true } },
   restaurant: { select: { id: true, code: true, name: true } },
   location: { select: { id: true, name: true } },
+  parent: { select: { id: true, name: true, assetCode: true } },
 } satisfies Prisma.AssetInclude
 
 type ListRow = Prisma.AssetGetPayload<{ include: typeof listInclude }>
@@ -42,9 +46,11 @@ function toListItem(a: ListRow): AssetListItem {
     assetCode: a.assetCode,
     name: a.name,
     status: a.status,
+    criticality: a.criticality,
     category: a.category,
     restaurant: a.restaurant,
     location: a.location,
+    parent: a.parent,
     manufacturer: a.manufacturer,
     model: a.model,
     serialNumber: a.serialNumber,
@@ -67,8 +73,11 @@ function toData(input: AssetInput) {
     warrantyStart: toDate(input.warrantyStart),
     warrantyEnd: toDate(input.warrantyEnd),
     notes: blank(input.notes),
-    // Omitted = unchanged (older clients don't send it).
+    // Omitted = unchanged (older clients don't send these).
     ...(input.vendorId !== undefined ? { vendorId: input.vendorId || null } : {}),
+    ...(input.parentId !== undefined ? { parentId: input.parentId || null } : {}),
+    ...(input.criticality !== undefined ? { criticality: input.criticality } : {}),
+    ...(input.installDate !== undefined ? { installDate: toDate(input.installDate) } : {}),
   }
 }
 
@@ -80,8 +89,22 @@ function comparable(v: unknown): string | null {
   return String(v)
 }
 
-/** Validates category, restaurant scope and that the location belongs to the restaurant. */
-async function validateRefs(auth: AuthContext, data: AssetData) {
+/** Walks up from `parentId`; true when `selfId` is found (would create a loop). */
+async function isDescendant(parentId: string, selfId: string): Promise<boolean> {
+  let cursor: string | null = parentId
+  for (let depth = 0; cursor && depth < 20; depth++) {
+    if (cursor === selfId) return true
+    const p: { parentId: string | null } | null = await prisma.asset.findUnique({
+      where: { id: cursor },
+      select: { parentId: true },
+    })
+    cursor = p?.parentId ?? null
+  }
+  return false
+}
+
+/** Validates category, restaurant scope, location and parent asset belong to the restaurant. */
+async function validateRefs(auth: AuthContext, data: AssetData, selfId?: string) {
   if (!canAccessRestaurant(auth, data.restaurantId)) {
     throw new ValidationError({ restaurantId: ['validation.restaurantOutOfScope'] })
   }
@@ -110,6 +133,16 @@ async function validateRefs(auth: AuthContext, data: AssetData) {
       where: { id: data.vendorId, organizationId: auth.organizationId, archivedAt: null },
     })
     if (!vendor) errors.vendorId = ['validation.invalidValue']
+  }
+  if (data.parentId) {
+    const parent = await prisma.asset.findFirst({
+      where: { id: data.parentId, organizationId: auth.organizationId, archivedAt: null },
+      select: { restaurantId: true },
+    })
+    if (!parent || parent.restaurantId !== data.restaurantId)
+      errors.parentId = ['validation.assetNotInRestaurant']
+    else if (selfId && (await isDescendant(data.parentId, selfId)))
+      errors.parentId = ['validation.assetCycle']
   }
   if (Object.keys(errors).length) throw new ValidationError(errors)
 }
@@ -143,6 +176,9 @@ export async function listAssets(
     locationId: query.locationId,
     categoryId: query.categoryId,
     status: query.status,
+    criticality: query.criticality,
+    ...(query.topLevel ? { parentId: null } : {}),
+    ...(query.parentId ? { parentId: query.parentId } : {}),
     ...(query.q
       ? {
           OR: [
@@ -174,6 +210,11 @@ async function buildDetail(auth: AuthContext, where: Prisma.AssetWhereInput): Pr
     include: {
       ...listInclude,
       vendor: { select: { id: true, name: true, phone: true } },
+      children: {
+        where: { archivedAt: null },
+        select: { id: true, name: true, assetCode: true, status: true },
+        orderBy: { name: 'asc' },
+      },
       history: {
         orderBy: { occurredAt: 'desc' },
         take: HISTORY_LIMIT,
@@ -193,6 +234,23 @@ async function buildDetail(auth: AuthContext, where: Prisma.AssetWhereInput): Pr
   })
   if (!a) throw new NotFoundError('Asset')
 
+  const [cost, total, reactive, completed, recent] = await Promise.all([
+    costBreakdown({ organizationId: auth.organizationId, assetId: a.id }),
+    prisma.workOrder.count({ where: { assetId: a.id, archivedAt: null } }),
+    prisma.workOrder.count({
+      where: { assetId: a.id, archivedAt: null, type: { not: 'PREVENTIVE' } },
+    }),
+    prisma.workOrder.count({
+      where: { assetId: a.id, archivedAt: null, status: { in: [...WORK_ORDER_DONE_STATUSES] } },
+    }),
+    prisma.workOrder.findMany({
+      where: { assetId: a.id, archivedAt: null, status: { in: [...WORK_ORDER_DONE_STATUSES] } },
+      select: { id: true, code: true, title: true, status: true, priority: true, dueDate: true },
+      orderBy: { completedAt: { sort: 'desc', nulls: 'last' } },
+      take: 10,
+    }),
+  ])
+
   const now = Date.now()
   const windowStart = now - 90 * DAY
   const downMs = a.downtimes.reduce((sum, d) => {
@@ -207,6 +265,11 @@ async function buildDetail(auth: AuthContext, where: Prisma.AssetWhereInput): Pr
     purchaseDate: dateOnly(a.purchaseDate),
     purchaseCost: a.purchaseCost?.toString() ?? null,
     vendor: a.vendor,
+    installDate: dateOnly(a.installDate),
+    children: a.children,
+    cost,
+    workOrderStats: { total, reactive, completed },
+    recentWorkOrders: recent.map((w) => ({ ...w, dueDate: w.dueDate?.toISOString() ?? null })),
     warrantyStart: dateOnly(a.warrantyStart),
     notes: a.notes,
     createdAt: a.createdAt.toISOString(),
@@ -222,7 +285,11 @@ async function buildDetail(auth: AuthContext, where: Prisma.AssetWhereInput): Pr
       note: h.note,
       occurredAt: h.occurredAt.toISOString(),
     })),
-    can: { edit: hasPermission(auth, 'assets:edit'), delete: hasPermission(auth, 'assets:delete') },
+    can: {
+      edit: hasPermission(auth, 'assets:edit'),
+      delete: hasPermission(auth, 'assets:delete'),
+      transfer: hasPermission(auth, 'assets:edit') && auth.user.roleKind !== 'WORKER',
+    },
   }
 }
 
@@ -288,7 +355,12 @@ export async function updateAsset(
   })
   if (!before) throw new NotFoundError('Asset')
   const data = toData(input)
-  await validateRefs(auth, data)
+  if (data.parentId === id) throw new ValidationError({ parentId: ['validation.assetCycle'] })
+  if (data.restaurantId !== before.restaurantId) {
+    // Changing restaurant is a transfer: same rules, components come along.
+    await assertTransferable(auth, id)
+  }
+  await validateRefs(auth, data, id)
 
   const changed: Record<string, { from: string | null; to: string | null }> = {}
   for (const key of Object.keys(data) as Array<keyof AssetData>) {
@@ -298,13 +370,15 @@ export async function updateAsset(
   }
   if (Object.keys(changed).length === 0) return getAsset(auth, id)
 
-  const moved = 'restaurantId' in changed || 'locationId' in changed
+  const transferred = 'restaurantId' in changed
+  const moved = transferred || 'locationId' in changed
   const otherChanges = Object.keys(changed).filter(
     (k) => k !== 'restaurantId' && k !== 'locationId',
   )
 
   await prisma.$transaction(async (tx) => {
     await tx.asset.update({ where: { id }, data })
+    if (transferred) await moveComponents(tx, id, data.restaurantId)
     if (moved) {
       const [restaurant, location] = await Promise.all([
         tx.restaurant.findUnique({ where: { id: data.restaurantId }, select: { name: true } }),
@@ -315,7 +389,7 @@ export async function updateAsset(
       await tx.assetHistory.create({
         data: {
           assetId: id,
-          eventType: 'MOVED',
+          eventType: transferred ? 'TRANSFERRED' : 'MOVED',
           actorId: auth.userId,
           oldValue: { restaurant: before.restaurant.name, location: before.location?.name ?? null },
           newValue: { restaurant: restaurant?.name ?? null, location: location?.name ?? null },
@@ -348,6 +422,119 @@ export async function updateAsset(
     )
   })
   return getAsset(auth, id)
+}
+
+/** A transfer is refused while the asset has open work (it belongs to the old restaurant). */
+async function assertTransferable(auth: AuthContext, id: string) {
+  if (!hasPermission(auth, 'assets:edit') || auth.user.roleKind === 'WORKER')
+    throw new ValidationError({ restaurantId: ['validation.invalidValue'] })
+  const open = await prisma.workOrder.count({
+    where: {
+      archivedAt: null,
+      status: { in: [...WORK_ORDER_ACTIVE_STATUSES] },
+      OR: [{ assetId: id }, { asset: { parentId: id } }],
+    },
+  })
+  if (open > 0) throw new ValidationError({ restaurantId: ['validation.assetHasOpenWork'] })
+}
+
+/** Components follow their parent; they lose their location (it belonged to the old site). */
+async function moveComponents(
+  tx: Prisma.TransactionClient,
+  parentId: string,
+  restaurantId: string,
+) {
+  let level = [parentId]
+  for (let depth = 0; level.length && depth < 20; depth++) {
+    const kids = await tx.asset.findMany({
+      where: { parentId: { in: level }, archivedAt: null },
+      select: { id: true },
+    })
+    if (!kids.length) break
+    await tx.asset.updateMany({
+      where: { id: { in: kids.map((k) => k.id) } },
+      data: { restaurantId, locationId: null },
+    })
+    level = kids.map((k) => k.id)
+  }
+}
+
+/** Moves an asset (and its components) to another restaurant or location, with a reason. */
+export async function transferAsset(
+  auth: AuthContext,
+  id: string,
+  input: AssetTransferInput,
+  req: Request,
+): Promise<AssetDetail> {
+  const before = await prisma.asset.findFirst({
+    where: { ...scopedWhere(auth), id },
+    include: listInclude,
+  })
+  if (!before) throw new NotFoundError('Asset')
+  const restaurantChanges = input.restaurantId !== before.restaurantId
+  if (restaurantChanges) await assertTransferable(auth, id)
+  const data = {
+    restaurantId: input.restaurantId,
+    locationId: input.locationId || null,
+    // A component moved to another site is no longer part of its old parent.
+    ...(restaurantChanges ? { parentId: null } : {}),
+  }
+  await validateRefs(auth, { ...toData(assetInputOf(before)), ...data }, id)
+  await prisma.$transaction(async (tx) => {
+    await tx.asset.update({ where: { id }, data })
+    if (restaurantChanges) await moveComponents(tx, id, input.restaurantId)
+    const [restaurant, location] = await Promise.all([
+      tx.restaurant.findUnique({ where: { id: data.restaurantId }, select: { name: true } }),
+      data.locationId
+        ? tx.location.findUnique({ where: { id: data.locationId }, select: { name: true } })
+        : null,
+    ])
+    await tx.assetHistory.create({
+      data: {
+        assetId: id,
+        eventType: restaurantChanges ? 'TRANSFERRED' : 'MOVED',
+        actorId: auth.userId,
+        oldValue: { restaurant: before.restaurant.name, location: before.location?.name ?? null },
+        newValue: { restaurant: restaurant?.name ?? null, location: location?.name ?? null },
+        note: input.note,
+      },
+    })
+    await recordAudit(
+      {
+        organizationId: auth.organizationId,
+        restaurantId: data.restaurantId,
+        actorId: auth.userId,
+        action: 'asset.transferred',
+        entityType: 'ASSET',
+        entityId: id,
+        oldValue: { restaurantId: before.restaurantId, locationId: before.locationId },
+        newValue: { restaurantId: data.restaurantId, locationId: data.locationId },
+        metadata: { note: input.note },
+      },
+      req,
+      tx,
+    )
+  })
+  return getAsset(auth, id)
+}
+
+/** Current values in form shape, for re-validating a partial change. */
+function assetInputOf(a: ListRow): AssetInput {
+  const d = (v: Date | null) => dateOnly(v) ?? ''
+  return {
+    name: a.name,
+    categoryId: a.categoryId,
+    restaurantId: a.restaurantId,
+    locationId: a.locationId ?? '',
+    manufacturer: a.manufacturer ?? '',
+    model: a.model ?? '',
+    serialNumber: a.serialNumber ?? '',
+    purchaseDate: d(a.purchaseDate),
+    purchaseCost: a.purchaseCost?.toString() ?? '',
+    warrantyStart: d(a.warrantyStart),
+    warrantyEnd: d(a.warrantyEnd),
+    notes: a.notes ?? '',
+  }
 }
 
 export async function changeAssetStatus(
@@ -412,6 +599,8 @@ export async function archiveAsset(auth: AuthContext, id: string, req: Request):
   if (!before) throw new NotFoundError('Asset')
   await prisma.$transaction(async (tx) => {
     await tx.asset.update({ where: { id }, data: { archivedAt: new Date() } })
+    // Components stay, as top-level assets.
+    await tx.asset.updateMany({ where: { parentId: id }, data: { parentId: null } })
     await tx.assetDowntime.updateMany({
       where: { assetId: id, endedAt: null },
       data: { endedAt: new Date() },

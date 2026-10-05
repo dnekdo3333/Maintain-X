@@ -34,7 +34,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { toast } from '@/components/ui/toaster'
 import { ReasonDialog } from '@/components/work-orders/dialogs'
 import { buyKeys, poApi, usePurchaseOrder } from '@/services/purchasing.service'
-import { describeError } from '@/utils/errors'
+import { describeError, reportError } from '@/utils/errors'
 import { formatCurrency, formatDate, formatDateTime, formatNumber } from '@/utils/format'
 
 export function PurchaseOrderDetailPage() {
@@ -80,7 +80,7 @@ function Detail({ po, back }: { po: PurchaseOrderDetail; back: { to: string; lab
       await apply(await fn())
       toast.success(success)
     } catch (err) {
-      toast.error(describeError(err, t))
+      reportError(err, t)
     } finally {
       setBusy(null)
     }

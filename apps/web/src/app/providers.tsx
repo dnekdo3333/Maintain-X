@@ -1,5 +1,6 @@
 import { QueryClientProvider, type QueryClient } from '@tanstack/react-query'
 import type { PropsWithChildren } from 'react'
+import { OfflineSync } from '@/components/common/OfflineBanner'
 import { Toaster } from '@/components/ui/toaster'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { AuthProvider } from '@/contexts/AuthContext'
@@ -16,6 +17,7 @@ export function AppProviders({ children, queryClient = defaultClient }: AppProvi
       <AuthProvider>
         <TooltipProvider delayDuration={300} skipDelayDuration={150}>
           {children}
+          <OfflineSync />
           <Toaster />
         </TooltipProvider>
       </AuthProvider>

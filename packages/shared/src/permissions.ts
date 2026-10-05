@@ -10,7 +10,17 @@
  * The backend is the authority; the frontend only uses these to hide controls.
  */
 
-export const ACTIONS = ['view', 'create', 'edit', 'delete', 'assign', 'approve', 'export'] as const
+export const ACTIONS = [
+  'view',
+  'create',
+  'edit',
+  'delete',
+  'assign',
+  'approve',
+  'complete',
+  'close',
+  'export',
+] as const
 export type Action = (typeof ACTIONS)[number]
 
 export const RESOURCES = [
@@ -37,6 +47,8 @@ export const RESOURCES = [
   'reports',
   'audit_logs',
   'settings',
+  'meters',
+  'automations',
 ] as const
 export type Resource = (typeof RESOURCES)[number]
 
@@ -52,7 +64,8 @@ export const RESOURCE_ACTIONS: Record<Resource, readonly Action[]> = {
   assets: [...CRUD, 'export'],
   qr: ['view', 'create', 'export'],
   requests: [...CRUD, 'assign', 'approve', 'export'],
-  work_orders: [...CRUD, 'assign', 'approve', 'export'],
+  // approve = verify finished work; complete = submit own work; close = cancel or close administratively.
+  work_orders: [...CRUD, 'assign', 'approve', 'complete', 'close', 'export'],
   maintenance: [...CRUD, 'assign', 'export'],
   procedures: [...CRUD, 'export'],
   inspections: [...CRUD, 'export'],
@@ -66,6 +79,9 @@ export const RESOURCE_ACTIONS: Record<Resource, readonly Action[]> = {
   reports: ['view', 'export'],
   audit_logs: ['view', 'export'],
   settings: ['view', 'edit'],
+  // create = record a reading; edit / delete = manage the meters on an asset.
+  meters: [...CRUD],
+  automations: [...CRUD],
 }
 
 export type Permission = `${Resource}:${Action}`
@@ -100,7 +116,10 @@ export function isPermission(value: string): value is Permission {
 export const SYSTEM_ROLES = {
   SUPER_ADMIN: 'SUPER_ADMIN',
   ADMIN: 'ADMIN',
+  MAINTENANCE_MANAGER: 'MAINTENANCE_MANAGER',
+  SUPERVISOR: 'SUPERVISOR',
   WORKER: 'WORKER',
+  REQUESTER: 'REQUESTER',
 } as const
 export type SystemRole = (typeof SYSTEM_ROLES)[keyof typeof SYSTEM_ROLES]
 
@@ -119,7 +138,7 @@ export const WORKER_PERMISSION_FLOOR: readonly Permission[] = [
   ...perms('assets', ['view']),
   ...perms('qr', ['view']),
   ...perms('requests', ['view', 'create']),
-  ...perms('work_orders', ['view', 'edit']),
+  ...perms('work_orders', ['view', 'edit', 'complete']),
   ...perms('maintenance', ['view']),
   ...perms('procedures', ['view']),
   ...perms('inspections', ['view', 'create', 'edit']),
@@ -128,6 +147,7 @@ export const WORKER_PERMISSION_FLOOR: readonly Permission[] = [
   ...perms('documents', ['view', 'create']),
   ...perms('messages', ['view', 'create']),
   ...perms('notifications', ['view', 'edit']),
+  ...perms('meters', ['view', 'create']),
 ]
 
 /**
@@ -144,7 +164,7 @@ export const ADMIN_DEFAULT_PERMISSIONS: readonly Permission[] = [
   ...perms('assets', [...CRUD, 'export']),
   ...perms('qr', ['view', 'create', 'export']),
   ...perms('requests', [...CRUD, 'assign', 'approve', 'export']),
-  ...perms('work_orders', [...CRUD, 'assign', 'approve', 'export']),
+  ...perms('work_orders', [...CRUD, 'assign', 'approve', 'complete', 'close', 'export']),
   ...perms('maintenance', [...CRUD, 'assign', 'export']),
   ...perms('procedures', [...CRUD, 'export']),
   ...perms('inspections', [...CRUD, 'export']),
@@ -156,13 +176,63 @@ export const ADMIN_DEFAULT_PERMISSIONS: readonly Permission[] = [
   ...perms('messages', ['view', 'create']),
   ...perms('notifications', ['view', 'edit']),
   ...perms('reports', ['view', 'export']),
+  ...perms('meters', [...CRUD]),
+  ...perms('automations', [...CRUD]),
+]
+
+/**
+ * Supervisor: oversees the floor. Reviews requests, dispatches and verifies
+ * work, but does not manage people, stock or purchasing.
+ */
+export const SUPERVISOR_DEFAULT_PERMISSIONS: readonly Permission[] = [
+  ...perms('dashboard', ['view']),
+  ...perms('restaurants', ['view']),
+  ...perms('locations', ['view']),
+  ...perms('users', ['view']),
+  ...perms('teams', ['view']),
+  ...perms('assets', ['view', 'edit']),
+  ...perms('qr', ['view']),
+  ...perms('requests', ['view', 'create', 'edit', 'assign', 'approve']),
+  ...perms('work_orders', ['view', 'create', 'edit', 'assign', 'approve', 'complete']),
+  ...perms('maintenance', ['view']),
+  ...perms('procedures', ['view']),
+  ...perms('inspections', ['view', 'create', 'edit']),
+  ...perms('inventory', ['view']),
+  ...perms('parts', ['view']),
+  ...perms('vendors', ['view']),
+  ...perms('documents', ['view', 'create']),
+  ...perms('messages', ['view', 'create']),
+  ...perms('notifications', ['view', 'edit']),
+  ...perms('reports', ['view']),
+  ...perms('meters', ['view', 'create']),
+  ...perms('automations', ['view']),
+]
+
+/**
+ * Requester: restaurant staff who only report problems and follow them up.
+ * Lands in the mobile app; never sees or works maintenance tasks.
+ */
+export const REQUESTER_PERMISSIONS: readonly Permission[] = [
+  ...perms('restaurants', ['view']),
+  ...perms('locations', ['view']),
+  ...perms('assets', ['view']),
+  ...perms('qr', ['view']),
+  ...perms('requests', ['view', 'create']),
+  ...perms('notifications', ['view', 'edit']),
 ]
 
 export const DEFAULT_ROLE_PERMISSIONS: Record<SystemRole, readonly Permission[]> = {
   SUPER_ADMIN: ALL_PERMISSIONS,
   ADMIN: ADMIN_DEFAULT_PERMISSIONS,
+  // Same starting point as Admin; Super Admin tailors the two independently.
+  MAINTENANCE_MANAGER: ADMIN_DEFAULT_PERMISSIONS,
+  SUPERVISOR: SUPERVISOR_DEFAULT_PERMISSIONS,
   WORKER: WORKER_PERMISSION_FLOOR,
+  REQUESTER: REQUESTER_PERMISSIONS,
 }
+
+/** Built-in roles whose permissions are fixed (re-applied on every seed, never edited). */
+export const LOCKED_SYSTEM_ROLES: readonly SystemRole[] = ['SUPER_ADMIN', 'WORKER', 'REQUESTER']
 
 /** Only Super Admin may hold these, regardless of custom roles. */
 export const SUPER_ADMIN_ONLY_RESOURCES: readonly Resource[] = ['roles', 'settings']

@@ -1,10 +1,31 @@
 import { fullName } from '@maintainx/shared'
 import { useQuery } from '@tanstack/react-query'
-import { Package, Pencil, Users, UsersRound } from 'lucide-react'
+import {
+  AlarmClock,
+  Archive,
+  Boxes,
+  ClipboardList,
+  Inbox,
+  IndianRupee,
+  MapPin,
+  Package,
+  PackageX,
+  Pencil,
+  SearchCheck,
+  Users,
+  UsersRound,
+  Wrench,
+  type LucideIcon,
+} from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import { Can } from '@/components/common/Can'
+import { ConfirmDialog } from '@/components/common/ConfirmDialog'
+import { toast } from '@/components/ui/toaster'
+import { reportError } from '@/utils/errors'
+import { formatCurrency, formatNumber } from '@/utils/format'
+import { cn } from '@/utils/cn'
 import { DocumentsPanel } from '@/components/documents/DocumentList'
 import { DetailList } from '@/components/common/DetailList'
 import { EmptyState } from '@/components/common/EmptyState'
@@ -23,6 +44,123 @@ import { restaurantsApi } from '@/services/admin.service'
 import { useAssets } from '@/services/assets.service'
 import { LocationsPanel } from './LocationsPanel'
 import { RestaurantForm } from './RestaurantsPage'
+
+/** The restaurant at a glance: everything that hangs off it, counted. */
+function StatsGrid({ restaurantId }: { restaurantId: string }) {
+  const { t } = useTranslation()
+  const query = useQuery({
+    queryKey: [...adminKeys.restaurants, 'stats', restaurantId],
+    queryFn: ({ signal }) => restaurantsApi.stats(restaurantId, signal),
+  })
+  if (query.isPending)
+    return (
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {Array.from({ length: 8 }, (_, i) => (
+          <Skeleton key={i} className="h-20" />
+        ))}
+      </div>
+    )
+  if (query.isError)
+    return <ErrorState error={query.error} onRetry={() => void query.refetch()} compact />
+  const s = query.data
+  const tiles: Array<{
+    label: string
+    value: string
+    icon: LucideIcon
+    to?: string
+    alert?: boolean
+  }> = [
+    {
+      label: t('restaurantStats.openWork'),
+      value: formatNumber(s.openWorkOrders),
+      icon: ClipboardList,
+      to: `/work-orders?restaurantId=${restaurantId}&view=active`,
+    },
+    {
+      label: t('restaurantStats.overdue'),
+      value: formatNumber(s.overdueWorkOrders),
+      icon: AlarmClock,
+      to: `/work-orders?restaurantId=${restaurantId}&view=overdue`,
+      alert: s.overdueWorkOrders > 0,
+    },
+    {
+      label: t('restaurantStats.requests'),
+      value: formatNumber(s.openRequests),
+      icon: Inbox,
+      to: '/requests',
+    },
+    { label: t('restaurantStats.completed'), value: formatNumber(s.completed30d), icon: Wrench },
+    {
+      label: t('restaurantStats.assets'),
+      value: formatNumber(s.assets),
+      icon: Package,
+      to: `/assets?restaurantId=${restaurantId}`,
+    },
+    {
+      label: t('restaurantStats.assetsDown'),
+      value: formatNumber(s.assetsDown),
+      icon: PackageX,
+      alert: s.assetsDown > 0,
+    },
+    { label: t('restaurantStats.locations'), value: formatNumber(s.locations), icon: MapPin },
+    {
+      label: t('restaurantStats.people'),
+      value: `${formatNumber(s.users)} · ${t('restaurantStats.workers', { count: s.workers })}`,
+      icon: Users,
+    },
+    { label: t('restaurantStats.teams'), value: formatNumber(s.teams), icon: UsersRound },
+    {
+      label: t('restaurantStats.parts'),
+      value: `${formatNumber(s.parts)} · ${t('restaurantStats.low', { count: s.lowStock })}`,
+      icon: Boxes,
+      to: '/inventory',
+      alert: s.lowStock > 0,
+    },
+    {
+      label: t('restaurantStats.inspections'),
+      value: `${formatNumber(s.inspections30d)} · ${t('restaurantStats.failed', { count: s.failedInspections30d })}`,
+      icon: SearchCheck,
+      alert: s.failedInspections30d > 0,
+    },
+    { label: t('restaurantStats.cost'), value: formatCurrency(s.cost30d), icon: IndianRupee },
+  ]
+  return (
+    <ul className="stagger grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+      {tiles.map((tile) => {
+        const body = (
+          <>
+            <span
+              className={cn(
+                'flex size-8 items-center justify-center rounded-lg',
+                tile.alert ? 'bg-danger-soft text-danger-fg' : 'bg-info-soft text-info-fg',
+              )}
+            >
+              <tile.icon className="size-4" aria-hidden />
+            </span>
+            <span className="mt-2 block text-lg font-semibold tracking-tight tabular">
+              {tile.value}
+            </span>
+            <span className="block text-xs text-muted-foreground">{tile.label}</span>
+          </>
+        )
+        return (
+          <li key={tile.label}>
+            {tile.to ? (
+              <Link
+                to={tile.to}
+                className="card-lift block h-full rounded-xl border bg-card p-3 shadow-card"
+              >
+                {body}
+              </Link>
+            ) : (
+              <div className="h-full rounded-xl border bg-card p-3 shadow-card">{body}</div>
+            )}
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
 
 const TABS = ['details', 'locations', 'assets', 'people', 'teams', 'documents'] as const
 type Tab = (typeof TABS)[number]
@@ -141,9 +279,11 @@ function TeamsTab({ restaurantId }: { restaurantId: string }) {
 export function RestaurantDetailPage() {
   const { t } = useTranslation()
   const { restaurantId = '' } = useParams()
-  const { can } = useAuth()
+  const { can, user } = useAuth()
+  const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
   const [editing, setEditing] = useState(false)
+  const [archiving, setArchiving] = useState(false)
   const query = useQuery({
     queryKey: [...adminKeys.restaurants, 'detail', restaurantId],
     queryFn: ({ signal }) => restaurantsApi.get(restaurantId, signal),
@@ -197,11 +337,18 @@ export function RestaurantDetailPage() {
           </>
         }
         actions={
-          <Can permission="restaurants:edit">
-            <Button variant="secondary" onClick={() => setEditing(true)}>
-              <Pencil aria-hidden /> {t('actions.edit')}
-            </Button>
-          </Can>
+          <>
+            <Can permission="restaurants:edit">
+              <Button variant="secondary" onClick={() => setEditing(true)}>
+                <Pencil aria-hidden /> {t('actions.edit')}
+              </Button>
+            </Can>
+            {user?.isSuperAdmin && (
+              <Button variant="ghost" onClick={() => setArchiving(true)}>
+                <Archive aria-hidden /> {t('restaurants.archive')}
+              </Button>
+            )}
+          </>
         }
       />
 
@@ -216,7 +363,8 @@ export function RestaurantDetailPage() {
             </TabsTrigger>
           ))}
         </TabsList>
-        <TabsContent value="details" className="max-w-3xl">
+        <TabsContent value="details" className="grid max-w-5xl gap-4">
+          <StatsGrid restaurantId={r.id} />
           <Panel>
             <PanelBody className="py-1">
               <DetailList
@@ -226,6 +374,15 @@ export function RestaurantDetailPage() {
                     label: t('restaurantDetail.hours'),
                     value: r.opensAt && r.closesAt ? `${r.opensAt}–${r.closesAt}` : null,
                   },
+                  {
+                    label: t('restaurants.manager'),
+                    value: r.manager && (
+                      <Link to={`/users/${r.manager.id}`} className="text-primary hover:underline">
+                        {fullName(r.manager)}
+                      </Link>
+                    ),
+                  },
+                  { label: t('restaurants.contactName'), value: r.contactName },
                   { label: t('restaurants.phone'), value: r.phone },
                   { label: t('restaurants.email'), value: r.email },
                 ]}
@@ -251,6 +408,25 @@ export function RestaurantDetailPage() {
           )}
         </TabsContent>
       </Tabs>
+
+      <ConfirmDialog
+        open={archiving}
+        onOpenChange={setArchiving}
+        tone="destructive"
+        title={t('restaurants.archiveTitle', { name: r.name })}
+        description={t('restaurants.archiveBody')}
+        confirmLabel={t('restaurants.archive')}
+        onConfirm={async () => {
+          try {
+            await restaurantsApi.archive(r.id)
+            toast.success(t('restaurants.archived'))
+            navigate('/restaurants', { replace: true })
+          } catch (err) {
+            reportError(err, t)
+            throw err
+          }
+        }}
+      />
 
       <Sheet open={editing} onOpenChange={setEditing}>
         <SheetContent aria-describedby={undefined}>

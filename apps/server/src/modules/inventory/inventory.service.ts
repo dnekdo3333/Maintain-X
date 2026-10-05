@@ -8,6 +8,7 @@ import {
   type PartListItem,
   type StockAdjustmentInput,
   type StockLevel,
+  type StockMovementMode,
   type StockSettingsInput,
 } from '@maintainx/shared'
 import { Prisma } from '@prisma/client'
@@ -16,8 +17,9 @@ import { recordAudit } from '../../core/audit.js'
 import { canAccessRestaurant, hasPermission } from '../../core/authz.js'
 import { ConflictError, NotFoundError, ValidationError } from '../../core/errors.js'
 import { toPagedResponse, toSkipTake } from '../../core/pagination.js'
+import { generatePublicId } from '../../core/ids.js'
 import { prisma } from '../../core/prisma.js'
-import { applyStockChange, notifyLowStock, round3 } from '../../core/stock.js'
+import { applyStockChange, notifyLowStock, reservedQuantities, round3 } from '../../core/stock.js'
 import type { AuthContext } from '../auth/auth.context.js'
 
 /*
@@ -48,7 +50,7 @@ const stockInclude = {
 } satisfies Prisma.InventoryInclude
 type StockRow = Prisma.InventoryGetPayload<{ include: typeof stockInclude }>
 
-function toLevel(row: StockRow, partMin: number): StockLevel {
+function toLevel(row: StockRow, partMin: number, reserved = 0): StockLevel {
   const quantity = Number(row.quantity)
   const override = row.minStock === null ? null : Number(row.minStock)
   const minStock = override ?? partMin
@@ -59,18 +61,26 @@ function toLevel(row: StockRow, partMin: number): StockLevel {
     minOverride: override,
     storageLocation: row.storageLocation,
     low: isLowStock(quantity, minStock),
+    reserved,
+    available: round3(Math.max(0, quantity - reserved)),
   }
 }
+
+const levelsOf = (rows: StockRow[], partMin: number, reserved: Map<string, number>) =>
+  rows.map((s) => toLevel(s, partMin, reserved.get(`${s.partId}:${s.restaurantId}`) ?? 0))
 
 function toListItem(p: PartRow, levels: StockLevel[], restaurantId?: string): PartListItem {
   return {
     id: p.id,
+    publicId: p.publicId,
     name: p.name,
     partNumber: p.partNumber,
+    sku: p.sku,
     category: p.category,
     unit: p.unit,
     unitCost: Number(p.unitCost),
     minStock: Number(p.minStock),
+    reorderQty: p.reorderQty === null ? null : Number(p.reorderQty),
     preferredVendor: p.preferredVendor,
     totalQuantity: round3(levels.reduce((s, l) => s + l.quantity, 0)),
     lowCount: levels.filter((l) => l.low).length,
@@ -107,6 +117,7 @@ export async function listParts(
       OR: [
         { name: { contains: q.q, mode: 'insensitive' } },
         { partNumber: { contains: q.q, mode: 'insensitive' } },
+        { sku: { contains: q.q, mode: 'insensitive' } },
         { category: { contains: q.q, mode: 'insensitive' } },
       ],
     })
@@ -121,15 +132,23 @@ export async function listParts(
     }),
     prisma.part.count({ where }),
   ])
-  const stock = await prisma.inventory.findMany({
-    where: { partId: { in: rows.map((r) => r.id) }, restaurantId: { in: restaurants } },
-    include: stockInclude,
-  })
+  const ids = rows.map((r) => r.id)
+  const [stock, reserved] = await Promise.all([
+    prisma.inventory.findMany({
+      where: { partId: { in: ids }, restaurantId: { in: restaurants } },
+      include: stockInclude,
+    }),
+    reservedQuantities(ids, restaurants),
+  ])
   return toPagedResponse(
     rows.map((p) =>
       toListItem(
         p,
-        stock.filter((s) => s.partId === p.id).map((s) => toLevel(s, Number(p.minStock))),
+        levelsOf(
+          stock.filter((s) => s.partId === p.id),
+          Number(p.minStock),
+          reserved,
+        ),
         q.restaurantId,
       ),
     ),
@@ -145,7 +164,8 @@ export async function getPart(auth: AuthContext, id: string): Promise<PartDetail
   })
   if (!p) throw new NotFoundError('Part')
   const restaurants = await visibleRestaurantIds(auth)
-  const [stock, txns] = await Promise.all([
+  const person = { select: { id: true, firstName: true, lastName: true } } as const
+  const [stock, txns, reservations, reserved] = await Promise.all([
     prisma.inventory.findMany({
       where: { partId: id, restaurantId: { in: restaurants } },
       include: stockInclude,
@@ -155,16 +175,27 @@ export async function getPart(auth: AuthContext, id: string): Promise<PartDetail
       where: { partId: id, restaurantId: { in: restaurants } },
       include: {
         restaurant: { select: { id: true, name: true } },
-        actor: { select: { id: true, firstName: true, lastName: true } },
+        actor: person,
+        issuedTo: person,
       },
       orderBy: { createdAt: 'desc' },
       take: 50,
     }),
+    prisma.partReservation.findMany({
+      where: { partId: id, restaurantId: { in: restaurants }, status: 'ACTIVE' },
+      include: {
+        restaurant: { select: { id: true, name: true } },
+        workOrder: { select: { id: true, code: true, title: true } },
+        createdBy: person,
+      },
+      orderBy: { createdAt: 'desc' },
+    }),
+    reservedQuantities([id], restaurants),
   ])
   // Codes for the work orders / purchase orders the ledger refers to.
   const ids = (type: string) =>
     txns.filter((t) => t.referenceType === type && t.referenceId).map((t) => t.referenceId!)
-  const [wos, pos] = await Promise.all([
+  const [wos, pos, counts] = await Promise.all([
     prisma.workOrder.findMany({
       where: { id: { in: ids('WORK_ORDER') } },
       select: { id: true, code: true },
@@ -173,9 +204,13 @@ export async function getPart(auth: AuthContext, id: string): Promise<PartDetail
       where: { id: { in: ids('PURCHASE_ORDER') } },
       select: { id: true, code: true },
     }),
+    prisma.stockCount.findMany({
+      where: { id: { in: ids('STOCK_COUNT') } },
+      select: { id: true, code: true },
+    }),
   ])
-  const codes = new Map([...wos, ...pos].map((x) => [x.id, x.code]))
-  const levels = stock.map((s) => toLevel(s, Number(p.minStock)))
+  const codes = new Map([...wos, ...pos, ...counts].map((x) => [x.id, x.code]))
+  const levels = levelsOf(stock, Number(p.minStock), reserved)
   return {
     ...toListItem(p, levels),
     description: p.description,
@@ -193,8 +228,18 @@ export async function getPart(auth: AuthContext, id: string): Promise<PartDetail
           ? { type: t.referenceType, id: t.referenceId, code: codes.get(t.referenceId) ?? null }
           : null,
       actor: t.actor,
+      issuedTo: t.issuedTo,
       reason: t.reason,
       createdAt: t.createdAt.toISOString(),
+    })),
+    reservations: reservations.map((r) => ({
+      id: r.id,
+      quantity: Number(r.quantity),
+      status: r.status,
+      restaurant: r.restaurant,
+      workOrder: r.workOrder,
+      createdBy: r.createdBy,
+      createdAt: r.createdAt.toISOString(),
     })),
     can: {
       edit: hasPermission(auth, 'parts:edit'),
@@ -215,6 +260,17 @@ async function validatePart(auth: AuthContext, input: PartInput, exceptId?: stri
     select: { id: true },
   })
   if (clash) errors.partNumber = ['validation.alreadyInUse']
+  if (input.sku) {
+    const skuClash = await prisma.part.findFirst({
+      where: {
+        organizationId: auth.organizationId,
+        sku: { equals: input.sku, mode: 'insensitive' },
+        ...(exceptId ? { id: { not: exceptId } } : {}),
+      },
+      select: { id: true },
+    })
+    if (skuClash) errors.sku = ['validation.alreadyInUse']
+  }
   if (input.preferredVendorId) {
     const v = await prisma.vendor.count({
       where: { id: input.preferredVendorId, organizationId: auth.organizationId, archivedAt: null },
@@ -227,10 +283,12 @@ async function validatePart(auth: AuthContext, input: PartInput, exceptId?: stri
 const partData = (input: PartInput) => ({
   name: input.name,
   partNumber: input.partNumber,
+  sku: blank(input.sku ?? ''),
   category: blank(input.category),
   unit: input.unit,
   unitCost: input.unitCost,
   minStock: input.minStock,
+  reorderQty: input.reorderQty ?? null,
   preferredVendorId: blank(input.preferredVendorId),
   storageLocation: blank(input.storageLocation),
   description: blank(input.description),
@@ -249,7 +307,7 @@ const auditPart = (auth: AuthContext, id: string, action: string, extra: object 
 export async function createPart(auth: AuthContext, input: PartInput, req: Request) {
   await validatePart(auth, input)
   const p = await prisma.part.create({
-    data: { ...partData(input), organizationId: auth.organizationId },
+    data: { ...partData(input), organizationId: auth.organizationId, publicId: generatePublicId() },
   })
   await recordAudit(auditPart(auth, p.id, 'part.created', { newValue: partData(input) }), req)
   return getPart(auth, p.id)
@@ -292,12 +350,37 @@ export async function archivePart(auth: AuthContext, id: string, req: Request) {
   }
   await prisma.part.update({
     where: { id },
-    // Frees the part number for reuse.
-    data: { archivedAt: new Date(), partNumber: `${p.partNumber}~${id.slice(0, 8)}` },
+    // Frees the part number and SKU for reuse.
+    data: {
+      archivedAt: new Date(),
+      partNumber: `${p.partNumber}~${id.slice(0, 8)}`,
+      sku: p.sku ? `${p.sku}~${id.slice(0, 8)}` : null,
+    },
   })
   await recordAudit(auditPart(auth, id, 'part.archived', { oldValue: { name: p.name } }), req)
 }
 
+const INCREASES: readonly StockMovementMode[] = ['RECEIVE', 'RETURN']
+
+const TXN_TYPE = {
+  RECEIVE: 'RECEIPT',
+  ISSUE: 'ISSUE',
+  RETURN: 'RETURN',
+  DAMAGED: 'DAMAGED',
+  REMOVE: 'ADJUSTMENT',
+  COUNT: 'ADJUSTMENT',
+} as const satisfies Record<StockMovementMode, string>
+
+const AUDIT_ACTION: Record<StockMovementMode, string> = {
+  RECEIVE: 'inventory.stock_in',
+  ISSUE: 'inventory.issued',
+  RETURN: 'inventory.returned',
+  DAMAGED: 'inventory.damaged',
+  REMOVE: 'inventory.adjusted',
+  COUNT: 'inventory.adjusted',
+}
+
+/** Stock in / out / returned / damaged / corrected, typed in by a person. */
 export async function adjustStock(
   auth: AuthContext,
   partId: string,
@@ -309,31 +392,42 @@ export async function adjustStock(
   const part = await getPart(auth, partId)
   const current =
     part.stockLevels.find((l) => l.restaurant.id === input.restaurantId)?.quantity ?? 0
-  const delta =
-    input.mode === 'RECEIVE'
-      ? input.quantity
-      : input.mode === 'REMOVE'
-        ? -input.quantity
-        : round3(input.quantity - current)
+  const delta = INCREASES.includes(input.mode)
+    ? input.quantity
+    : input.mode === 'COUNT'
+      ? round3(input.quantity - current)
+      : -input.quantity
   if (delta === 0) return part
+  if (input.mode === 'ISSUE') {
+    const to = await prisma.user.count({
+      where: {
+        id: input.issuedToId!,
+        organizationId: auth.organizationId,
+        archivedAt: null,
+        status: 'ACTIVE',
+      },
+    })
+    if (!to) throw new ValidationError({ issuedToId: ['validation.invalidValue'] })
+  }
   const result = await prisma.$transaction(async (tx) => {
     const r = await applyStockChange(tx, {
       organizationId: auth.organizationId,
       partId,
       restaurantId: input.restaurantId,
       delta,
-      type: input.mode === 'RECEIVE' ? 'RECEIPT' : 'ADJUSTMENT',
-      unitCost: input.mode === 'RECEIVE' ? (input.unitCost ?? part.unitCost) : null,
+      type: TXN_TYPE[input.mode],
+      unitCost: input.mode === 'RECEIVE' ? (input.unitCost ?? part.unitCost) : part.unitCost,
       referenceType: 'MANUAL',
       actorId: auth.userId,
       reason: input.reason,
+      issuedToId: input.mode === 'ISSUE' ? input.issuedToId : null,
     })
     await recordAudit(
       {
         organizationId: auth.organizationId,
         restaurantId: input.restaurantId,
         actorId: auth.userId,
-        action: 'inventory.adjusted',
+        action: AUDIT_ACTION[input.mode],
         entityType: 'INVENTORY',
         entityId: partId,
         oldValue: { quantity: r.before },
@@ -388,6 +482,16 @@ export async function updateStockSettings(
 }
 
 /** Distinct categories for filters and the part form. */
+/** Part QR landing: same view as the part page, found by its printed code. */
+export async function getPartByPublicId(auth: AuthContext, publicId: string): Promise<PartDetail> {
+  const p = await prisma.part.findFirst({
+    where: { publicId, organizationId: auth.organizationId, archivedAt: null },
+    select: { id: true },
+  })
+  if (!p) throw new NotFoundError('Part')
+  return getPart(auth, p.id)
+}
+
 export async function partCategories(auth: AuthContext): Promise<string[]> {
   const rows = await prisma.part.findMany({
     where: { organizationId: auth.organizationId, archivedAt: null, category: { not: null } },

@@ -1,10 +1,19 @@
-import { Activity, CalendarClock, ClipboardList, Pencil, Plus, Trash2 } from 'lucide-react'
+import {
+  Activity,
+  ArrowRightLeft,
+  CalendarClock,
+  ClipboardList,
+  Pencil,
+  Plus,
+  Trash2,
+} from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams } from 'react-router'
 import { AssetDetailView } from '@/components/assets/AssetDetailView'
 import { AssetForm } from '@/components/assets/AssetForm'
 import { AssetStatusDialog } from '@/components/assets/AssetStatusDialog'
+import { AssetTransferDialog } from '@/components/assets/AssetTransferDialog'
 import { Can } from '@/components/common/Can'
 import { DocumentsPanel } from '@/components/documents/DocumentList'
 import { Panel, PanelBody, PanelHeader, PanelTitle } from '@/components/ui/panel'
@@ -19,7 +28,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { toast } from '@/components/ui/toaster'
 import { useInvalidatingMutation } from '@/hooks/useAdminQueries'
 import { assetKeys, assetsApi, useAsset } from '@/services/assets.service'
-import { describeError } from '@/utils/errors'
+import { reportError } from '@/utils/errors'
 
 export function AssetDetailPage() {
   const { t } = useTranslation()
@@ -29,6 +38,7 @@ export function AssetDetailPage() {
   const [editing, setEditing] = useState(false)
   const [statusOpen, setStatusOpen] = useState(false)
   const [confirmArchive, setConfirmArchive] = useState(false)
+  const [transferring, setTransferring] = useState(false)
   const archive = useInvalidatingMutation(
     () => assetsApi.archive(assetId),
     [assetKeys.all, assetKeys.locationsAll],
@@ -61,6 +71,7 @@ export function AssetDetailPage() {
           <>
             <span className="text-13 text-muted-foreground tabular">{asset.assetCode}</span>
             <StatusBadge kind="assetStatus" value={asset.status} />
+            <StatusBadge kind="assetCriticality" value={asset.criticality} />
             <Badge tone="outline">{asset.category.name}</Badge>
           </>
         }
@@ -98,6 +109,11 @@ export function AssetDetailPage() {
                     <Button onClick={() => setStatusOpen(true)}>
                       <Activity aria-hidden /> {t('assets.changeStatus')}
                     </Button>
+                    {asset.can.transfer && (
+                      <Button variant="secondary" onClick={() => setTransferring(true)}>
+                        <ArrowRightLeft aria-hidden /> {t('assets.transfer')}
+                      </Button>
+                    )}
                     <Button variant="secondary" onClick={() => setEditing(true)}>
                       <Pencil aria-hidden /> {t('actions.edit')}
                     </Button>
@@ -149,6 +165,10 @@ export function AssetDetailPage() {
         </SheetContent>
       </Sheet>
 
+      {asset.can.transfer && (
+        <AssetTransferDialog asset={asset} open={transferring} onOpenChange={setTransferring} />
+      )}
+
       <AssetStatusDialog
         key={asset.status}
         asset={asset}
@@ -169,7 +189,7 @@ export function AssetDetailPage() {
             toast.success(t('assets.archived'))
             navigate('/assets', { replace: true })
           } catch (err) {
-            toast.error(describeError(err, t))
+            reportError(err, t)
             throw err
           }
         }}

@@ -106,11 +106,16 @@ function WorkerSidebarFooter() {
 
 export function WorkerShell() {
   const { t } = useTranslation()
+  const { can } = useAuth()
   const unread = useUnreadCount()
+  // Requesters (restaurant staff) report problems; they have no tasks of their own.
+  const doesWork = can('work_orders:view')
   // Schedule lives under More; alerts get a tab with a badge.
   const tabs: NavItem[] = [
     { key: 'home', label: t('nav.home'), to: '/w', icon: Home, end: true },
-    { key: 'tasks', label: t('nav.myTasks'), to: '/w/tasks', icon: ClipboardList },
+    doesWork
+      ? { key: 'tasks', label: t('nav.myTasks'), to: '/w/tasks', icon: ClipboardList }
+      : { key: 'reports', label: t('report.mine'), to: '/w/reports', icon: Inbox },
     { key: 'scan', label: t('nav.scan'), to: '/w/scan', icon: ScanLine },
     {
       key: 'notifications',
@@ -124,9 +129,22 @@ export function WorkerShell() {
   // On desktops the sidebar shows these directly (on phones they're under More).
   const moreItems: NavItem[] = [
     { key: 'report', label: t('report.title'), to: '/w/report', icon: Megaphone },
-    { key: 'schedule', label: t('nav.schedule'), to: '/w/schedule', icon: CalendarDays },
-    { key: 'checklists', label: t('nav.checklists'), to: '/w/checklists', icon: ClipboardCheck },
-    { key: 'reports', label: t('report.mine'), to: '/w/reports', icon: Inbox },
+    ...(doesWork
+      ? [{ key: 'schedule', label: t('nav.schedule'), to: '/w/schedule', icon: CalendarDays }]
+      : []),
+    ...(can('inspections:view')
+      ? [
+          {
+            key: 'checklists',
+            label: t('nav.checklists'),
+            to: '/w/checklists',
+            icon: ClipboardCheck,
+          },
+        ]
+      : []),
+    ...(doesWork
+      ? [{ key: 'reports', label: t('report.mine'), to: '/w/reports', icon: Inbox }]
+      : []),
     { key: 'assets', label: t('nav.myAssets'), to: '/w/assets', icon: Package },
     { key: 'restaurants', label: t('nav.myRestaurants'), to: '/w/restaurants', icon: Building2 },
     { key: 'account', label: t('worker.profile'), to: '/w/account', icon: UserRound },

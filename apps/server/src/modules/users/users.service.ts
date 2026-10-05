@@ -89,6 +89,8 @@ function toListItem(auth: AuthContext, u: UserRow): UserListItem {
     mustChangePassword: u.mustChangePassword,
     lastLoginAt: u.lastLoginAt?.toISOString() ?? null,
     createdAt: u.createdAt.toISOString(),
+    jobTitle: u.jobTitle,
+    hourlyRate: u.hourlyRate?.toString() ?? null,
     role: role
       ? { id: role.id, name: role.name, systemKey: role.systemKey, kind: role.kind }
       : null,
@@ -321,6 +323,7 @@ export async function createUser(
         firstName: input.firstName,
         lastName: input.lastName,
         ...ids,
+        ...workDetails(input),
         passwordHash,
         mustChangePassword: true,
         status: 'ACTIVE',
@@ -357,14 +360,17 @@ export async function updateUser(
   input: UpdateUserInput,
   req: Request,
 ): Promise<UserDetail> {
-  const before = id === auth.userId ? await loadVisible(auth, id) : await loadManageable(auth, id)
+  const self = id === auth.userId
+  const before = self ? await loadVisible(auth, id) : await loadManageable(auth, id)
   const ids = normaliseIdentifiers(input)
   await assertIdentifiersFree(auth.organizationId, ids, id)
+  // People don't set their own pay rate or title (Super Admins excepted).
+  const extra = self && !auth.isSuperAdmin ? {} : workDetails(input)
 
   await prisma.$transaction(async (tx) => {
     await tx.user.update({
       where: { id },
-      data: { firstName: input.firstName, lastName: input.lastName, ...ids },
+      data: { firstName: input.firstName, lastName: input.lastName, ...ids, ...extra },
     })
     await recordAudit(
       {
@@ -379,14 +385,30 @@ export async function updateUser(
           email: before.email,
           username: before.username,
           phone: before.phone,
+          jobTitle: before.jobTitle,
+          hourlyRate: before.hourlyRate,
         },
-        newValue: { firstName: input.firstName, lastName: input.lastName, ...ids },
+        newValue: {
+          firstName: input.firstName,
+          lastName: input.lastName,
+          ...ids,
+          ...('jobTitle' in extra ? { jobTitle: extra.jobTitle } : {}),
+          ...('hourlyRate' in extra ? { hourlyRate: extra.hourlyRate } : {}),
+        },
       },
       req,
       tx,
     )
   })
   return getUser(auth, id)
+}
+
+/** Optional work details from a profile form; omitted fields stay unchanged. */
+function workDetails(input: { jobTitle?: string; hourlyRate?: string }) {
+  return {
+    ...(input.jobTitle !== undefined ? { jobTitle: input.jobTitle || null } : {}),
+    ...(input.hourlyRate !== undefined ? { hourlyRate: input.hourlyRate || null } : {}),
+  }
 }
 
 export async function updateUserAccess(
@@ -538,8 +560,15 @@ export async function archiveUser(auth: AuthContext, id: string, req: Request): 
   })
 }
 
-/** Lightweight list for pickers (team members, assignees later). */
-export async function listUserOptions(auth: AuthContext, restaurantId?: string) {
+/**
+ * Lightweight list for pickers (team members, assignees, supervisors).
+ * `permission` keeps only people who hold it (Super Admins always do).
+ */
+export async function listUserOptions(
+  auth: AuthContext,
+  restaurantId?: string,
+  permission?: 'work_orders:approve' | 'work_orders:complete',
+) {
   if (restaurantId && !canAccessRestaurant(auth, restaurantId)) return []
   const rows = await prisma.user.findMany({
     where: {
@@ -549,6 +578,20 @@ export async function listUserOptions(auth: AuthContext, restaurantId?: string) 
       AND: [
         visibilityWhere(auth),
         restaurantId ? { userRestaurants: { some: { restaurantId } } } : {},
+        permission
+          ? {
+              userRoles: {
+                some: {
+                  role: {
+                    OR: [
+                      { systemKey: SYSTEM_ROLES.SUPER_ADMIN },
+                      { rolePermissions: { some: { permission: { key: permission } } } },
+                    ],
+                  },
+                },
+              },
+            }
+          : {},
       ],
     },
     select: {

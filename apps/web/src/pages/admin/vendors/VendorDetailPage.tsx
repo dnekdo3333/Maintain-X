@@ -40,7 +40,9 @@ import { Panel, PanelBody, PanelHeader, PanelTitle } from '@/components/ui/panel
 import { Sheet, SheetBody, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { Skeleton } from '@/components/ui/skeleton'
 import { toast } from '@/components/ui/toaster'
+import { VendorContracts } from '@/components/vendors/VendorContracts'
 import { VendorForm } from '@/components/vendors/VendorForm'
+import { VendorPerformanceStrip, VendorWorkOrders } from '@/components/vendors/VendorPerformance'
 import { DocumentsPanel } from '@/components/documents/DocumentList'
 import { useCurrentUser } from '@/contexts/AuthContext'
 import { useInvalidatingMutation, useRestaurants } from '@/hooks/useAdminQueries'
@@ -51,7 +53,7 @@ import {
   useVendorInvoices,
   vendorsApi,
 } from '@/services/purchasing.service'
-import { describeError } from '@/utils/errors'
+import { describeError, reportError } from '@/utils/errors'
 import { formatCurrency, formatDate } from '@/utils/format'
 import { enumLabel } from '@/utils/i18n'
 import { StatusBadge } from '@/components/common/StatusBadge'
@@ -134,6 +136,8 @@ function Detail({ v, back }: { v: VendorDetail; back: { to: string; label: strin
           </>
         }
       />
+
+      <VendorPerformanceStrip v={v} />
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
         <div className="grid content-start gap-4">
@@ -220,6 +224,8 @@ function Detail({ v, back }: { v: VendorDetail; back: { to: string; label: strin
           </Panel>
         </div>
         <div className="grid content-start gap-4">
+          <VendorContracts vendor={v} />
+          <VendorWorkOrders v={v} />
           <Invoices vendor={v} />
           <Panel>
             <PanelHeader>
@@ -261,7 +267,7 @@ function Detail({ v, back }: { v: VendorDetail; back: { to: string; label: strin
             toast.success(t('vendors.archived'))
             navigate('/vendors', { replace: true })
           } catch (err) {
-            toast.error(describeError(err, t))
+            reportError(err, t)
             throw err
           }
         }}
@@ -287,7 +293,7 @@ function Invoices({ vendor }: { vendor: VendorDetail }) {
       await vendorsApi.setPaid(vendor.id, i.id, paid)
       await refresh()
     } catch (err) {
-      toast.error(describeError(err, t))
+      reportError(err, t)
     }
   }
 
@@ -383,7 +389,7 @@ function Invoices({ vendor }: { vendor: VendorDetail }) {
             await vendorsApi.deleteInvoice(vendor.id, deleting!.id)
             await refresh()
           } catch (err) {
-            toast.error(describeError(err, t))
+            reportError(err, t)
             throw err
           }
         }}

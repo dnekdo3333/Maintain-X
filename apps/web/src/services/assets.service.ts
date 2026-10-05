@@ -1,4 +1,8 @@
 import type {
+  AssetMeterDto,
+  MeterInput,
+  MeterReadingInput,
+  RootCauseDto,
   ApiResponse,
   AssetCategoryDto,
   AssetCategoryInput,
@@ -6,8 +10,10 @@ import type {
   AssetInput,
   AssetListItem,
   AssetStatusChangeInput,
+  AssetTransferInput,
   LocationDto,
   LocationInput,
+  LocationLanding,
   PagedResponse,
 } from '@maintainx/shared'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
@@ -23,6 +29,13 @@ export const locationsApi = {
   update: (id: string, input: LocationInput) =>
     unwrap(http.put<ApiResponse<LocationDto>>(`/locations/${id}`, input)),
   archive: (id: string) => http.delete<void>(`/locations/${id}`),
+  byPublicId: (publicId: string, signal?: AbortSignal) =>
+    unwrap(
+      http.get<ApiResponse<LocationLanding>>(
+        `/locations/by-public/${encodeURIComponent(publicId)}`,
+        { signal },
+      ),
+    ),
 }
 
 export const categoriesApi = {
@@ -51,7 +64,30 @@ export const assetsApi = {
     unwrap(http.put<ApiResponse<AssetDetail>>(`/assets/${id}`, input)),
   changeStatus: (id: string, input: AssetStatusChangeInput) =>
     unwrap(http.put<ApiResponse<AssetDetail>>(`/assets/${id}/status`, input)),
+  transfer: (id: string, input: AssetTransferInput) =>
+    unwrap(http.post<ApiResponse<AssetDetail>>(`/assets/${id}/transfer`, input)),
   archive: (id: string) => http.delete<void>(`/assets/${id}`),
+}
+
+/** Meters, readings and root causes on an asset. */
+export const metersApi = {
+  list: (assetId: string, signal?: AbortSignal) =>
+    unwrap(http.get<ApiResponse<AssetMeterDto[]>>(`/assets/${assetId}/meters`, { signal })),
+  create: (assetId: string, input: MeterInput) =>
+    unwrap(http.post<ApiResponse<AssetMeterDto[]>>(`/assets/${assetId}/meters`, input)),
+  update: (assetId: string, meterId: string, input: MeterInput) =>
+    unwrap(http.put<ApiResponse<AssetMeterDto[]>>(`/assets/${assetId}/meters/${meterId}`, input)),
+  archive: (assetId: string, meterId: string) =>
+    unwrap(http.delete<ApiResponse<AssetMeterDto[]>>(`/assets/${assetId}/meters/${meterId}`)),
+  read: (assetId: string, meterId: string, input: MeterReadingInput) =>
+    unwrap(
+      http.post<ApiResponse<AssetMeterDto[]>>(
+        `/assets/${assetId}/meters/${meterId}/readings`,
+        input,
+      ),
+    ),
+  rootCauses: (assetId: string, signal?: AbortSignal) =>
+    unwrap(http.get<ApiResponse<RootCauseDto[]>>(`/assets/${assetId}/root-causes`, { signal })),
 }
 
 export const assetKeys = {

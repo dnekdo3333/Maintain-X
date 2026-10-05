@@ -17,8 +17,8 @@ dashboardRouter.get(
     const auth = getAuth(req)
     // Organisation-wide lists include other people's tasks; workers get their own home in Phase 6.
     if (auth.user.roleKind === 'WORKER') throw new ForbiddenError()
-    const { restaurantId } = parseQuery(dashboardQuerySchema, req)
+    const query = parseQuery(dashboardQuerySchema, req)
     res.setHeader('Cache-Control', 'private, no-store')
-    sendData(res, await getDashboard(auth, restaurantId))
+    sendData(res, await getDashboard(auth, query))
   },
 )

@@ -1,14 +1,17 @@
 import {
   PRIORITY,
   WORK_ORDER_CATEGORY,
+  WORK_ORDER_TYPE,
   createWorkOrderSchema,
   type CreateWorkOrderInput,
   type Priority,
   type RestaurantDto,
+  type UpdateWorkOrderInput,
   type WorkOrderCategory,
   type WorkOrderDetail,
+  type WorkOrderType,
 } from '@maintainx/shared'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { z } from 'zod'
 import { MoreOptions } from '@/components/common/MoreOptions'
@@ -24,6 +27,7 @@ import {
   applyServerErrors,
   useZodForm,
 } from '@/components/forms'
+import { CheckboxListField } from '@/components/forms/CheckboxListField'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { toast } from '@/components/ui/toaster'
@@ -32,6 +36,7 @@ import { useRestaurantScope } from '@/contexts/RestaurantScopeContext'
 import { useRestaurants, useTeams, useUserOptions } from '@/hooks/useAdminQueries'
 import { useAssets, useLocations } from '@/services/assets.service'
 import { useProcedures } from '@/services/maintenance.service'
+import { useVendorOptions } from '@/services/purchasing.service'
 import { useApplyWorkOrder, workOrdersApi } from '@/services/work-orders.service'
 import { describeError } from '@/utils/errors'
 import { enumLabel } from '@/utils/i18n'
@@ -44,42 +49,65 @@ const formSchema = createWorkOrderSchema
     locationId: true,
     assetId: true,
     dueDate: true,
+    scheduledStart: true,
     assignedUserId: true,
     assignedTeamId: true,
+    helperIds: true,
+    vendorId: true,
+    supervisorId: true,
+    parentId: true,
     requestId: true,
     procedureId: true,
+    asDraft: true,
+    type: true,
   })
   .extend({
+    type: z.string(),
     procedureId: z.string(),
     locationId: z.string(),
     assetId: z.string(),
     /** 'YYYY-MM-DD' or ''. Due at the end of that day. */
     dueDate: z.string(),
+    /** 'YYYY-MM-DDTHH:mm' (local) or ''. */
+    scheduledStart: z.string(),
     /** NONE, 'user:<id>' or 'team:<id>'. */
     assignee: z.string(),
+    helperIds: z.array(z.string()),
+    vendorId: z.string(),
+    supervisorId: z.string(),
   })
 
-/** Values to start a new work order from (a request, an asset page…). */
+/** Values to start a new work order from (a request, an asset page, a parent job…). */
 export interface WorkOrderPrefill {
   title?: string
   description?: string
   category?: WorkOrderCategory
   priority?: Priority
+  type?: WorkOrderType
   restaurantId?: string
   locationId?: string | null
   assetId?: string | null
   requestId?: string
   procedureId?: string
+  /** Creates a sub work order of this job. */
+  parent?: { id: string; code: string; title: string }
 }
 
+const pad = (n: number) => String(n).padStart(2, '0')
 const toDateInput = (iso: string | null) => {
   if (!iso) return ''
   const d = new Date(iso)
-  const pad = (n: number) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+const toDateTimeInput = (iso: string | null) => {
+  if (!iso) return ''
+  const d = new Date(iso)
+  return `${toDateInput(iso)}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 /** End of the chosen day, local time, as ISO with offset. */
 const toDueIso = (day: string) => (day ? new Date(`${day}T23:59:00`).toISOString() : '')
+const toIso = (local: string) => (local ? new Date(local).toISOString() : '')
+const orBlank = (v: string) => (v === NONE ? '' : v)
 
 interface WorkOrderFormProps {
   workOrder?: WorkOrderDetail | null
@@ -116,6 +144,7 @@ function WorkOrderFormInner({
   const apply = useApplyWorkOrder()
   const editing = !!workOrder
   const canAssign = !editing && can('work_orders:assign')
+  const draftRef = useRef(false)
 
   const form = useZodForm(formSchema, {
     defaultValues: workOrder
@@ -124,12 +153,17 @@ function WorkOrderFormInner({
           description: workOrder.description ?? '',
           category: workOrder.category,
           priority: workOrder.priority,
+          type: workOrder.type,
           restaurantId: workOrder.restaurant.id,
           locationId: workOrder.location?.id ?? NONE,
           assetId: workOrder.asset?.id ?? NONE,
           dueDate: toDateInput(workOrder.dueDate),
+          scheduledStart: toDateTimeInput(workOrder.scheduledStart),
           estimatedMinutes: workOrder.estimatedMinutes ?? undefined,
           assignee: NONE,
+          helperIds: [],
+          vendorId: workOrder.vendor?.id ?? NONE,
+          supervisorId: workOrder.supervisor?.id ?? NONE,
           procedureId: NONE,
         }
       : {
@@ -137,6 +171,7 @@ function WorkOrderFormInner({
           description: prefill.description ?? '',
           category: prefill.category ?? 'OTHER',
           priority: prefill.priority ?? 'MEDIUM',
+          type: prefill.type ?? 'REACTIVE',
           restaurantId:
             prefill.restaurantId ??
             scope.restaurantId ??
@@ -144,15 +179,30 @@ function WorkOrderFormInner({
           locationId: prefill.locationId ?? NONE,
           assetId: prefill.assetId ?? NONE,
           dueDate: '',
+          scheduledStart: '',
           estimatedMinutes: undefined,
           assignee: NONE,
+          helperIds: [],
+          vendorId: NONE,
+          supervisorId: NONE,
           procedureId: prefill.procedureId ?? NONE,
         },
   })
   const restaurantId = form.watch('restaurantId')
+  const assignee = form.watch('assignee')
   const locations = useLocations(restaurantId || undefined, !!restaurantId)
   const assets = useAssets({ restaurantId, pageSize: 100, sort: 'name:asc' }, !!restaurantId)
-  const users = useUserOptions(restaurantId || undefined, canAssign && !!restaurantId)
+  const users = useUserOptions(
+    restaurantId || undefined,
+    canAssign && !!restaurantId,
+    'work_orders:complete',
+  )
+  const supervisors = useUserOptions(
+    restaurantId || undefined,
+    !!restaurantId && can('work_orders:assign'),
+    'work_orders:approve',
+  )
+  const vendors = useVendorOptions(undefined, can('vendors:view'))
   const teams = useTeams()
   const procedures = useProcedures(
     { restaurantId },
@@ -176,10 +226,19 @@ function WorkOrderFormInner({
       form.setValue('procedureId', NONE)
   }, [procedures.data, form])
   useEffect(() => {
+    if (!users.data) return
     const v = form.getValues('assignee')
-    if (v.startsWith('user:') && users.data && !users.data.some((u) => `user:${u.id}` === v))
+    if (v.startsWith('user:') && !users.data.some((u) => `user:${u.id}` === v))
       form.setValue('assignee', NONE)
+    const helpers = form.getValues('helperIds')
+    const valid = helpers.filter((h) => users.data.some((u) => u.id === h))
+    if (valid.length !== helpers.length) form.setValue('helperIds', valid)
   }, [users.data, form])
+  useEffect(() => {
+    const v = form.getValues('supervisorId')
+    if (v !== NONE && supervisors.data && !supervisors.data.some((u) => u.id === v))
+      form.setValue('supervisorId', NONE)
+  }, [supervisors.data, form])
 
   const teamOptions = canAssign
     ? (teams.data ?? []).filter((tm) => !tm.restaurant || tm.restaurant.id === restaurantId)
@@ -193,27 +252,41 @@ function WorkOrderFormInner({
       category: v.category,
       priority: v.priority,
       restaurantId: v.restaurantId,
-      locationId: v.locationId === NONE ? '' : v.locationId,
-      assetId: v.assetId === NONE ? '' : v.assetId,
+      locationId: orBlank(v.locationId),
+      assetId: orBlank(v.assetId),
       dueDate: toDueIso(v.dueDate),
       estimatedMinutes: v.estimatedMinutes,
-    }
+      scheduledStart: toIso(v.scheduledStart),
+      ...(can('vendors:view') ? { vendorId: orBlank(v.vendorId) } : {}),
+      ...(can('work_orders:assign') ? { supervisorId: orBlank(v.supervisorId) } : {}),
+    } satisfies UpdateWorkOrderInput
     try {
       let saved: WorkOrderDetail
       if (workOrder) {
         saved = await workOrdersApi.update(workOrder.id, base)
       } else {
+        const userId = v.assignee.startsWith('user:') ? v.assignee.slice(5) : ''
         const input: CreateWorkOrderInput = {
           ...base,
-          assignedUserId: v.assignee.startsWith('user:') ? v.assignee.slice(5) : '',
+          type: v.type as WorkOrderType,
+          assignedUserId: userId,
           assignedTeamId: v.assignee.startsWith('team:') ? v.assignee.slice(5) : '',
+          helperIds: canAssign ? v.helperIds.filter((h) => h !== userId) : undefined,
+          parentId: prefill.parent?.id ?? '',
           requestId: prefill.requestId ?? '',
-          procedureId: v.procedureId === NONE ? '' : v.procedureId,
+          procedureId: orBlank(v.procedureId),
+          asDraft: draftRef.current,
         }
         saved = await workOrdersApi.create(input)
       }
       await apply(saved)
-      toast.success(editing ? t('wo.saved') : t('wo.created', { code: saved.code }))
+      toast.success(
+        editing
+          ? t('wo.saved')
+          : draftRef.current
+            ? t('wo.draftSaved', { code: saved.code })
+            : t('wo.created', { code: saved.code }),
+      )
       onDone(saved)
     } catch (err) {
       if (
@@ -226,12 +299,19 @@ function WorkOrderFormInner({
     }
   })
 
+  const assigneeId = assignee.startsWith('user:') ? assignee.slice(5) : ''
+
   return (
     <Form {...form}>
       <form onSubmit={onSubmit} noValidate className="grid gap-4">
         <FormRootError message={errors.root?.message} />
+        {prefill.parent && (
+          <p className="rounded-md bg-muted px-3 py-2 text-13">
+            {t('wo.subOf', { code: prefill.parent.code, title: prefill.parent.title })}
+          </p>
+        )}
         <TextField control={form.control} name="title" label={t('wo.fieldTitle')} required />
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-4 sm:grid-cols-3">
           <SelectField
             control={form.control}
             name="category"
@@ -249,13 +329,27 @@ function WorkOrderFormInner({
             required
             options={PRIORITY.map((p) => ({ value: p, label: enumLabel(t, 'priority', p) }))}
           />
+          <SelectField
+            control={form.control}
+            name="type"
+            label={t('wo.fieldType')}
+            disabled={editing}
+            options={WORK_ORDER_TYPE.map((v) => ({
+              value: v,
+              label: enumLabel(t, 'workOrderType', v),
+            }))}
+          />
         </div>
         <SelectField
           control={form.control}
           name="restaurantId"
           label={t('wo.fieldRestaurant')}
           required
-          disabled={!!prefill.requestId || (editing && workOrder.assignedUser !== null)}
+          disabled={
+            !!prefill.requestId ||
+            !!prefill.parent ||
+            (editing && (workOrder.assignedUser !== null || workOrder.helpers.length > 0))
+          }
           placeholder={t('validation.selectOption')}
           options={restaurants.map((r) => ({ value: r.id, label: r.name }))}
         />
@@ -304,7 +398,17 @@ function WorkOrderFormInner({
             ]}
           />
         )}
-        <DateField control={form.control} name="dueDate" label={t('wo.fieldDue')} optional />
+        <div className="grid gap-4 sm:grid-cols-2">
+          <TextField
+            control={form.control}
+            name="scheduledStart"
+            type="datetime-local"
+            label={t('wo.fieldScheduledStart')}
+            description={t('wo.scheduledHint')}
+            optional
+          />
+          <DateField control={form.control} name="dueDate" label={t('wo.fieldDue')} optional />
+        </div>
         {!editing && (procedures.data?.length ?? 0) > 0 && (
           <SelectField
             control={form.control}
@@ -327,21 +431,82 @@ function WorkOrderFormInner({
           optional
           rows={4}
         />
-        <MoreOptions forceOpen={!!errors.estimatedMinutes}>
-          <NumberField
-            control={form.control}
-            name="estimatedMinutes"
-            label={t('wo.fieldEstimate')}
-            min={5}
-            step={5}
-            suffix={t('wo.minutes')}
-          />
+        <MoreOptions forceOpen={!!errors.estimatedMinutes || editing}>
+          <div className="grid gap-4">
+            <NumberField
+              control={form.control}
+              name="estimatedMinutes"
+              label={t('wo.fieldEstimate')}
+              min={5}
+              step={5}
+              suffix={t('wo.minutes')}
+            />
+            {can('work_orders:assign') && (
+              <SelectField
+                control={form.control}
+                name="supervisorId"
+                label={t('wo.fieldSupervisor')}
+                description={t('wo.supervisorHint')}
+                disabled={!restaurantId}
+                options={[
+                  { value: NONE, label: t('wo.anySupervisor') },
+                  ...(supervisors.data ?? []).map((u) => ({
+                    value: u.id,
+                    label: `${u.firstName} ${u.lastName}${u.role ? ` · ${u.role}` : ''}`,
+                  })),
+                ]}
+              />
+            )}
+            {can('vendors:view') && (
+              <SelectField
+                control={form.control}
+                name="vendorId"
+                label={t('wo.fieldVendor')}
+                description={t('wo.vendorHint')}
+                options={[
+                  { value: NONE, label: t('wo.noVendor') },
+                  ...(vendors.data ?? []).map((v) => ({ value: v.id, label: v.name })),
+                ]}
+              />
+            )}
+            {canAssign && (users.data?.length ?? 0) > 1 && (
+              <CheckboxListField
+                control={form.control}
+                name="helperIds"
+                label={t('wo.fieldHelpers')}
+                description={t('wo.helpersHint')}
+                options={(users.data ?? [])
+                  .filter((u) => u.id !== assigneeId)
+                  .map((u) => ({
+                    value: u.id,
+                    label: `${u.firstName} ${u.lastName}`,
+                    description: u.role ?? undefined,
+                  }))}
+              />
+            )}
+          </div>
         </MoreOptions>
         <FormActions>
           <Button variant="secondary" onClick={onCancel} disabled={isSubmitting}>
             {t('actions.cancel')}
           </Button>
-          <Button type="submit" loading={isSubmitting}>
+          {!editing && (
+            <Button
+              type="submit"
+              variant="secondary"
+              loading={isSubmitting && draftRef.current}
+              disabled={isSubmitting}
+              onClick={() => (draftRef.current = true)}
+            >
+              {t('wo.saveDraft')}
+            </Button>
+          )}
+          <Button
+            type="submit"
+            loading={isSubmitting && !draftRef.current}
+            disabled={isSubmitting}
+            onClick={() => (draftRef.current = false)}
+          >
             {editing ? t('actions.saveChanges') : t('wo.create')}
           </Button>
         </FormActions>

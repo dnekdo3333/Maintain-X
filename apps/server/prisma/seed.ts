@@ -1,7 +1,8 @@
 /**
- * Idempotent seed: organization, permission catalogue, the three system roles
- * and the first Super Admin. Safe to re-run; it never resets permissions an
- * admin has customised on the ADMIN role.
+ * Idempotent seed: organization, permission catalogue, the system roles and
+ * the first Super Admin. Safe to re-run: editable roles (Admin, Maintenance
+ * Manager, Supervisor) keep their customisations and only receive permissions
+ * that are new to the catalogue.
  *
  *   npm run db:seed            (reads SEED_* from apps/server/.env)
  */
@@ -10,6 +11,7 @@ import { config as loadDotenv } from 'dotenv'
 import {
   ALL_PERMISSIONS,
   DEFAULT_ROLE_PERMISSIONS,
+  LOCKED_SYSTEM_ROLES,
   SYSTEM_ROLES,
   parsePermission,
   type SystemRole,
@@ -45,10 +47,28 @@ const ROLE_SEEDS: RoleSeed[] = [
     description: 'Manages operations for assigned restaurants. Permissions are configurable.',
   },
   {
+    systemKey: SYSTEM_ROLES.MAINTENANCE_MANAGER,
+    name: 'Maintenance Manager',
+    kind: 'ADMIN',
+    description: 'Runs maintenance across assigned restaurants: work, assets, stock, vendors.',
+  },
+  {
+    systemKey: SYSTEM_ROLES.SUPERVISOR,
+    name: 'Supervisor',
+    kind: 'ADMIN',
+    description: 'Reviews requests, dispatches work and verifies finished jobs.',
+  },
+  {
     systemKey: SYSTEM_ROLES.WORKER,
     name: 'Worker',
     kind: 'WORKER',
     description: 'Executes assigned tasks, runs checklists and reports problems.',
+  },
+  {
+    systemKey: SYSTEM_ROLES.REQUESTER,
+    name: 'Requester',
+    kind: 'WORKER',
+    description: 'Restaurant staff who report problems and follow their requests.',
   },
 ]
 
@@ -69,6 +89,9 @@ async function main(): Promise<void> {
 
   // 2. Permission catalogue
   const permissionIdByKey = new Map<string, string>()
+  const existingKeys = new Set(
+    (await prisma.permission.findMany({ select: { key: true } })).map((p) => p.key),
+  )
   for (const key of ALL_PERMISSIONS) {
     const parsed = parsePermission(key)
     if (!parsed) throw new Error(`Invalid permission key in shared package: ${key}`)
@@ -99,10 +122,19 @@ async function main(): Promise<void> {
     roleIdByKey.set(seed.systemKey, role.id)
 
     const existing = await prisma.rolePermission.count({ where: { roleId: role.id } })
-    // SUPER_ADMIN and WORKER are always reset to their fixed sets.
-    // ADMIN is only initialised once so Super Admin customisations survive re-seeding.
-    const shouldSync = seed.systemKey !== SYSTEM_ROLES.ADMIN || existing === 0
-    if (!shouldSync) continue
+    // Locked roles are always reset to their fixed sets. Editable roles are
+    // initialised once, then only gain permissions that are new to the catalogue.
+    const locked = LOCKED_SYSTEM_ROLES.includes(seed.systemKey)
+    if (!locked && existing > 0) {
+      const added = DEFAULT_ROLE_PERMISSIONS[seed.systemKey].filter((k) => !existingKeys.has(k))
+      if (added.length > 0) {
+        await prisma.rolePermission.createMany({
+          data: added.map((k) => ({ roleId: role.id, permissionId: permissionIdByKey.get(k)! })),
+          skipDuplicates: true,
+        })
+      }
+      continue
+    }
 
     const wanted = DEFAULT_ROLE_PERMISSIONS[seed.systemKey].map((k) => {
       const id = permissionIdByKey.get(k)
@@ -189,6 +221,13 @@ async function seedDemo(organizationId: string, roles: Map<SystemRole, string>) 
   const people = [
     { username: 'manager', firstName: 'Priya', lastName: 'Shah', role: SYSTEM_ROLES.ADMIN },
     { username: 'technician', firstName: 'Ravi', lastName: 'Kumar', role: SYSTEM_ROLES.WORKER },
+    {
+      username: 'supervisor',
+      firstName: 'Meera',
+      lastName: 'Patel',
+      role: SYSTEM_ROLES.SUPERVISOR,
+    },
+    { username: 'staff', firstName: 'Arjun', lastName: 'Mehta', role: SYSTEM_ROLES.REQUESTER },
   ] as const
   const hash = await hashPassword(password)
   for (const p of people) {

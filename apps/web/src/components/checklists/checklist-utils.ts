@@ -1,4 +1,4 @@
-import type { ChecklistItemDto } from '@maintainx/shared'
+import { stepIsDone, type ChecklistItemDto } from '@maintainx/shared'
 import type { TFunction } from 'i18next'
 import { formatNumber } from '@/utils/format'
 import { looseT } from '@/utils/i18n'
@@ -25,6 +25,7 @@ export function rangeLabel(
 
 export const checklistProgress = (items: ChecklistItemDto[]) => ({
   answered: items.filter((i) => i.result !== null).length,
-  requiredLeft: items.filter((i) => i.required && i.result === null).length,
+  /** Steps blocking submission (incl. a required photo that's missing) — same rule as the server. */
+  requiredLeft: items.filter((i) => !stepIsDone({ ...i, photoCount: i.attachments.length })).length,
   failed: items.filter((i) => i.result === 'FAIL').length,
 })

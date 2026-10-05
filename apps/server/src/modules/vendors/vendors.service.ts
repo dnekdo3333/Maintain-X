@@ -1,6 +1,11 @@
 import {
   ERROR_CODES,
+  WORK_ORDER_DONE_STATUSES,
+  contractState,
   type ListVendorsQuery,
+  type VendorContractDto,
+  type VendorContractInput,
+  type VendorPerformance,
   type PagedResponse,
   type VendorDetail,
   type VendorInput,
@@ -9,7 +14,7 @@ import {
   type VendorListItem,
   type VendorOption,
 } from '@maintainx/shared'
-import type { Prisma } from '@prisma/client'
+import { Prisma } from '@prisma/client'
 import type { Request } from 'express'
 import { recordAudit } from '../../core/audit.js'
 import { canAccessRestaurant, hasPermission, restaurantScope } from '../../core/authz.js'
@@ -142,6 +147,94 @@ function canManage(auth: AuthContext, v: Row) {
   )
 }
 
+const HOUR = 3_600_000
+const avg = (xs: number[]) =>
+  xs.length ? Math.round((xs.reduce((a, b) => a + b, 0) / xs.length) * 10) / 10 : null
+const money = (n: number) => Math.round(n * 100) / 100
+
+/**
+ * How the vendor performs on the jobs given to it (last 12 months, visible
+ * restaurants) and what it cost: invoices + vendor cost lines on work orders
+ * + goods received on purchase orders.
+ */
+async function vendorPerformance(
+  auth: AuthContext,
+  vendorId: string,
+  since: Date,
+  invoices: number,
+): Promise<VendorPerformance> {
+  const scope = restaurantScope(auth)
+  const [jobs, costLines, received, contracts] = await Promise.all([
+    prisma.workOrder.findMany({
+      where: { vendorId, archivedAt: null, restaurantId: scope, createdAt: { gte: since } },
+      select: { status: true, createdAt: true, startedAt: true, completedAt: true, dueDate: true },
+      take: 5000,
+    }),
+    prisma.workOrderCost.aggregate({
+      where: {
+        vendorId,
+        createdAt: { gte: since },
+        workOrder: { restaurantId: scope, archivedAt: null },
+      },
+      _sum: { amount: true },
+    }),
+    prisma.$queryRaw<Array<{ value: Prisma.Decimal | null }>>`
+      SELECT SUM(i.qty_received * i.unit_cost) AS value
+        FROM purchase_order_items i JOIN purchase_orders p ON p.id = i.purchase_order_id
+       WHERE p.vendor_id = ${vendorId}::uuid
+         AND p.created_at >= ${since}
+         ${scope ? Prisma.sql`AND p.restaurant_id IN (${Prisma.join(scope.in.length ? scope.in.map((r) => Prisma.sql`${r}::uuid`) : [Prisma.sql`NULL::uuid`])})` : Prisma.empty}`,
+    prisma.vendorContract.findMany({
+      where: { vendorId, archivedAt: null, responseHours: { not: null } },
+      select: { startDate: true, endDate: true, responseHours: true },
+    }),
+  ])
+  const done = jobs.filter((j) =>
+    (WORK_ORDER_DONE_STATUSES as readonly string[]).includes(j.status),
+  )
+  const withDue = done.filter((j) => j.dueDate && j.completedAt)
+  const today = new Date().toISOString().slice(0, 10)
+  const live = contracts.filter((c) => {
+    const st = contractState(
+      c.startDate.toISOString().slice(0, 10),
+      c.endDate?.toISOString().slice(0, 10) ?? null,
+      today,
+    )
+    return st === 'active' || st === 'expiring'
+  })
+  const workOrderCosts = Number(costLines._sum.amount ?? 0)
+  const purchases = Number(received[0]?.value ?? 0)
+  return {
+    workOrders: {
+      total: jobs.length,
+      open: jobs.filter((j) => j.status !== 'CANCELLED' && !done.includes(j)).length,
+      completed: done.length,
+    },
+    avgResponseHours: avg(
+      jobs
+        .filter((j) => j.startedAt)
+        .map((j) => (j.startedAt!.getTime() - j.createdAt.getTime()) / HOUR),
+    ),
+    avgCompletionHours: avg(
+      done
+        .filter((j) => j.completedAt)
+        .map((j) => (j.completedAt!.getTime() - j.createdAt.getTime()) / HOUR),
+    ),
+    onTimeRate: withDue.length
+      ? Math.round(
+          (withDue.filter((j) => j.completedAt! <= j.dueDate!).length / withDue.length) * 100,
+        ) / 100
+      : null,
+    contractResponseHours: live.length ? Math.min(...live.map((c) => c.responseHours!)) : null,
+    spend: {
+      invoices: money(invoices),
+      workOrderCosts: money(workOrderCosts),
+      purchases: money(purchases),
+      total: money(invoices + workOrderCosts + purchases),
+    },
+  }
+}
+
 export async function getVendor(auth: AuthContext, id: string): Promise<VendorDetail> {
   const v = await load(auth, id)
   const since = new Date(Date.now() - 365 * 86_400_000)
@@ -160,6 +253,29 @@ export async function getVendor(auth: AuthContext, id: string): Promise<VendorDe
     }),
   ])
   const manage = canManage(auth, v)
+  const [performance, recent, parts] = await Promise.all([
+    vendorPerformance(auth, id, since, Number(spend._sum.amount ?? 0)),
+    prisma.workOrder.findMany({
+      where: { vendorId: id, archivedAt: null, restaurantId: restaurantScope(auth) },
+      select: {
+        id: true,
+        code: true,
+        title: true,
+        status: true,
+        createdAt: true,
+        completedAt: true,
+        restaurant: { select: { id: true, name: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 10,
+    }),
+    prisma.part.findMany({
+      where: { preferredVendorId: id, archivedAt: null },
+      select: { id: true, name: true, partNumber: true },
+      orderBy: { name: 'asc' },
+      take: 50,
+    }),
+  ])
   return {
     ...toListItem(v),
     altPhone: v.altPhone,
@@ -170,6 +286,17 @@ export async function getVendor(auth: AuthContext, id: string): Promise<VendorDe
     unpaidAmount: Number(unpaid._sum.amount ?? 0),
     partCount,
     assetCount,
+    performance,
+    recentWorkOrders: recent.map((w) => ({
+      id: w.id,
+      code: w.code,
+      title: w.title,
+      status: w.status,
+      restaurant: w.restaurant,
+      createdAt: w.createdAt.toISOString(),
+      completedAt: w.completedAt?.toISOString() ?? null,
+    })),
+    parts,
     can: {
       edit: manage && hasPermission(auth, 'vendors:edit'),
       delete: manage && hasPermission(auth, 'vendors:delete'),
@@ -427,4 +554,154 @@ export async function deleteInvoice(
     }),
     req,
   )
+}
+
+// ------------------------------------------------------------------ contracts
+
+const contractInclude = {
+  restaurant: { select: { id: true, name: true } },
+} satisfies Prisma.VendorContractInclude
+type ContractRow = Prisma.VendorContractGetPayload<{ include: typeof contractInclude }>
+
+const isoDate = (d: Date | null) => d?.toISOString().slice(0, 10) ?? null
+const asDate = (s: string) => new Date(`${s}T00:00:00Z`)
+
+function toContract(c: ContractRow, today: string): VendorContractDto {
+  const startDate = isoDate(c.startDate)!
+  const endDate = isoDate(c.endDate)
+  return {
+    id: c.id,
+    title: c.title,
+    contractNumber: c.contractNumber,
+    startDate,
+    endDate,
+    value: c.value === null ? null : Number(c.value),
+    responseHours: c.responseHours,
+    restaurant: c.restaurant,
+    terms: c.terms,
+    state: contractState(startDate, endDate, today),
+  }
+}
+
+/** Contracts limited to restaurants the user can see (unlinked ones cover the vendor). */
+const contractScope = (auth: AuthContext): Prisma.VendorContractWhereInput =>
+  auth.isSuperAdmin ? {} : { OR: [{ restaurantId: null }, { restaurantId: restaurantScope(auth) }] }
+
+export async function listContracts(auth: AuthContext, vendorId: string) {
+  await load(auth, vendorId)
+  const rows = await prisma.vendorContract.findMany({
+    where: { vendorId, archivedAt: null, ...contractScope(auth) },
+    include: contractInclude,
+    orderBy: [{ endDate: { sort: 'asc', nulls: 'last' } }, { startDate: 'desc' }],
+  })
+  const today = new Date().toISOString().slice(0, 10)
+  return rows.map((r) => toContract(r, today))
+}
+
+async function contractData(auth: AuthContext, v: Row, input: VendorContractInput) {
+  const restaurantId = blank(input.restaurantId)
+  if (restaurantId) {
+    const serves =
+      v.vendorRestaurants.length === 0 ||
+      v.vendorRestaurants.some((r) => r.restaurantId === restaurantId)
+    if (!canAccessRestaurant(auth, restaurantId) || !serves)
+      throw new ValidationError({ restaurantId: ['validation.restaurantOutOfScope'] })
+  } else if (!canManage(auth, v)) {
+    throw new ValidationError({ restaurantId: ['validation.restaurantRequired'] })
+  }
+  return {
+    title: input.title,
+    contractNumber: blank(input.contractNumber),
+    startDate: asDate(input.startDate),
+    endDate: input.endDate ? asDate(input.endDate) : null,
+    value: input.value ?? null,
+    responseHours: input.responseHours ?? null,
+    restaurantId,
+    terms: blank(input.terms),
+  }
+}
+
+const auditContract = (
+  auth: AuthContext,
+  id: string,
+  restaurantId: string | null,
+  action: string,
+  extra: object = {},
+) => ({
+  organizationId: auth.organizationId,
+  restaurantId,
+  actorId: auth.userId,
+  action,
+  entityType: 'VENDOR_CONTRACT' as const,
+  entityId: id,
+  ...extra,
+})
+
+export async function createContract(
+  auth: AuthContext,
+  vendorId: string,
+  input: VendorContractInput,
+  req: Request,
+) {
+  const v = await load(auth, vendorId)
+  const data = await contractData(auth, v, input)
+  const c = await prisma.vendorContract.create({
+    data: { ...data, organizationId: auth.organizationId, vendorId },
+  })
+  await recordAudit(
+    auditContract(auth, c.id, data.restaurantId, 'vendor_contract.created', {
+      newValue: { vendor: v.name, title: input.title, endDate: input.endDate || null },
+    }),
+    req,
+  )
+  return listContracts(auth, vendorId)
+}
+
+async function loadContract(auth: AuthContext, vendorId: string, id: string) {
+  const c = await prisma.vendorContract.findFirst({
+    where: { id, vendorId, archivedAt: null, ...contractScope(auth) },
+  })
+  if (!c) throw new NotFoundError('Contract')
+  if (c.restaurantId && !canAccessRestaurant(auth, c.restaurantId))
+    throw new NotFoundError('Contract')
+  return c
+}
+
+export async function updateContract(
+  auth: AuthContext,
+  vendorId: string,
+  id: string,
+  input: VendorContractInput,
+  req: Request,
+) {
+  const v = await load(auth, vendorId)
+  const before = await loadContract(auth, vendorId, id)
+  const data = await contractData(auth, v, input)
+  await prisma.vendorContract.update({ where: { id }, data })
+  await recordAudit(
+    auditContract(auth, id, data.restaurantId, 'vendor_contract.updated', {
+      oldValue: { title: before.title, endDate: isoDate(before.endDate) },
+      newValue: { title: input.title, endDate: input.endDate || null },
+    }),
+    req,
+  )
+  return listContracts(auth, vendorId)
+}
+
+export async function archiveContract(
+  auth: AuthContext,
+  vendorId: string,
+  id: string,
+  req: Request,
+) {
+  await load(auth, vendorId)
+  const c = await loadContract(auth, vendorId, id)
+  await prisma.vendorContract.update({ where: { id }, data: { archivedAt: new Date() } })
+  await recordAudit(
+    auditContract(auth, id, c.restaurantId, 'vendor_contract.archived', {
+      oldValue: { title: c.title },
+    }),
+    req,
+  )
+  return listContracts(auth, vendorId)
 }

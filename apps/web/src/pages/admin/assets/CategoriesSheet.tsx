@@ -8,7 +8,7 @@ import { Sheet, SheetBody, SheetContent, SheetHeader, SheetTitle } from '@/compo
 import { toast } from '@/components/ui/toaster'
 import { useInvalidatingMutation } from '@/hooks/useAdminQueries'
 import { assetKeys, categoriesApi, useAssetCategories } from '@/services/assets.service'
-import { describeError } from '@/utils/errors'
+import { describeError, reportError } from '@/utils/errors'
 
 /** Add categories and archive unused ones. Categories are shared by all restaurants. */
 export function CategoriesSheet({
@@ -74,7 +74,7 @@ export function CategoriesSheet({
                           await archive.mutateAsync(c.id)
                           toast.success(t('assets.categoryArchived'))
                         } catch (err) {
-                          toast.error(describeError(err, t))
+                          reportError(err, t)
                         }
                       }}
                     >

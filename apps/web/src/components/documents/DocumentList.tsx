@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { toast } from '@/components/ui/toaster'
 import { documentsApi, platformKeys, useDocuments } from '@/services/platform.service'
-import { describeError } from '@/utils/errors'
+import { reportError } from '@/utils/errors'
 import { formatDate, formatNumber } from '@/utils/format'
 import { enumLabel } from '@/utils/i18n'
 import { EditDocumentDialog, UploadDocumentDialog } from './DocumentDialogs'
@@ -126,7 +126,7 @@ export function DocumentRows({
             onChanged()
             toast.success(t('documents.deleted'))
           } catch (err) {
-            toast.error(describeError(err, t))
+            reportError(err, t)
             throw err
           }
         }}

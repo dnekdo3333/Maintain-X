@@ -48,7 +48,9 @@ export function TextField<T extends FieldValues, N extends FieldPath<T>, TT = T>
   type = 'text',
   ...inputProps
 }: BaseFieldProps<T, N, TT> &
-  InputPassthrough & { type?: 'text' | 'email' | 'tel' | 'password' | 'url' | 'search' }) {
+  InputPassthrough & {
+    type?: 'text' | 'email' | 'tel' | 'password' | 'url' | 'search' | 'datetime-local'
+  }) {
   return (
     <FormField
       control={control}

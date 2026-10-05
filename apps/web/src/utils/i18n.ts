@@ -33,6 +33,15 @@ export type EnumKind =
   | 'inventoryTxnType'
   | 'documentType'
   | 'workOrderType'
+  | 'assetCriticality'
+  | 'workOrderCostType'
+  | 'attachmentKind'
+  | 'finalCondition'
+  | 'failureCategory'
+  | 'meterType'
+  | 'automationTrigger'
+  | 'partCondition'
+  | 'evidenceStage'
 
 export function enumLabel(t: TFunction, kind: EnumKind, value: string): string {
   return looseT(t)(`enums.${kind}.${value}`, { defaultValue: value })

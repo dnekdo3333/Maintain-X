@@ -1,10 +1,23 @@
 import {
   AUTH_CSRF_HEADER,
   AUTH_CSRF_VALUE,
+  IDEMPOTENCY_HEADER,
   type ApiErrorBody,
   type ErrorCode,
 } from '@maintainx/shared'
 import i18n from '@/i18n'
+import {
+  cacheRead,
+  cachedRead,
+  canQueue,
+  deserializeBody,
+  enqueue,
+  isCacheable,
+  isQueueable,
+  markOffline,
+  serializeBody,
+  setSender,
+} from './offline'
 
 // ---------------------------------------------------------------------------
 // Session plumbing. The access token lives only in memory (never localStorage);
@@ -32,7 +45,8 @@ export function setRefreshHandler(handler: RefreshHandler | null): void {
 
 const RETRYABLE_AUTH_CODES = new Set(['TOKEN_EXPIRED', 'TOKEN_INVALID'])
 
-export type ClientErrorCode = ErrorCode | 'NETWORK_ERROR'
+/** QUEUED_OFFLINE: no connection, the change is stored on the device and will be sent later. */
+export type ClientErrorCode = ErrorCode | 'NETWORK_ERROR' | 'QUEUED_OFFLINE'
 
 /** Normalised API failure. `code` maps to a translated message via describeError(). */
 export class ApiError extends Error {
@@ -75,7 +89,14 @@ export interface RequestOptions {
   isRetry?: boolean
   /** Return the response body as text (CSV downloads) instead of parsed JSON. */
   raw?: boolean
+  /** Internal: replaying from the offline queue (never queue again). */
+  noQueue?: boolean
 }
+
+const newKey = () =>
+  typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID().replace(/-/g, '')
+    : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`
 
 function buildUrl(path: string, query?: Record<string, QueryValue>): string {
   const url = `${API_BASE}${path}`
@@ -102,11 +123,15 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   } = options
 
   const token = anonymous ? null : accessToken
+  // Every write carries a key, so a retry (or the offline queue) is applied once.
+  const idempotencyKey =
+    method !== 'GET' && !anonymous ? (headers[IDEMPOTENCY_HEADER] ?? newKey()) : undefined
   const requestHeaders: Record<string, string> = {
     Accept: 'application/json',
     'Accept-Language': i18n.language,
     [AUTH_CSRF_HEADER]: AUTH_CSRF_VALUE,
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(idempotencyKey ? { [IDEMPOTENCY_HEADER]: idempotencyKey } : {}),
     ...headers,
   }
   const init: RequestInit = { method, credentials: 'include', signal, headers: requestHeaders }
@@ -120,11 +145,34 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
     }
   }
 
+  const url = buildUrl(path, query)
   let response: Response
   try {
-    response = await fetch(buildUrl(path, query), init)
+    response = await fetch(url, init)
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') throw err
+    markOffline()
+    // Offline: serve the last copy of a screen, or keep the change for later.
+    if (method === 'GET' && !options.raw && isCacheable(path)) {
+      const cached = await cachedRead(url)
+      if (cached !== undefined) return cached as T
+    }
+    if (
+      idempotencyKey &&
+      !options.noQueue &&
+      (method === 'POST' || method === 'PUT') &&
+      isQueueable(method, path) &&
+      canQueue()
+    ) {
+      await enqueue({
+        id: idempotencyKey,
+        method,
+        path,
+        ...(await serializeBody(body)),
+        createdAt: Date.now(),
+      })
+      throw new ApiError(0, 'QUEUED_OFFLINE', 'Saved on this device; it will be sent when online.')
+    }
     throw new ApiError(0, 'NETWORK_ERROR', 'Could not reach the server.')
   }
 
@@ -162,8 +210,29 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
     )
   }
 
+  if (method === 'GET' && !options.raw && response.ok && isCacheable(path))
+    void cacheRead(url, json)
   return (options.raw ? text : json) as T
 }
+
+// How the offline queue replays a stored write.
+setSender(async (w) => {
+  try {
+    await request(w.path, {
+      method: w.method,
+      body: deserializeBody(w),
+      headers: { [IDEMPOTENCY_HEADER]: w.id },
+      noQueue: true,
+    })
+    return 'ok'
+  } catch (err) {
+    if (!(err instanceof ApiError)) return 'retry'
+    if (err.status === 0) return 'offline'
+    if (err.code === 'REQUEST_IN_PROGRESS' || err.status >= 500 || err.status === 401)
+      return 'retry'
+    return { error: err.code }
+  }
+})
 
 type Opts = Omit<RequestOptions, 'method' | 'body'>
 

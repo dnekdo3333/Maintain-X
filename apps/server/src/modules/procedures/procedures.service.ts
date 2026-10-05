@@ -96,6 +96,8 @@ export async function getProcedure(auth: AuthContext, id: string): Promise<Proce
       minValue: s.minValue === null ? null : Number(s.minValue),
       maxValue: s.maxValue === null ? null : Number(s.maxValue),
       required: s.required,
+      options: s.options,
+      requirePhoto: s.requirePhoto,
     })),
     can: {
       edit: manage && hasPermission(auth, 'procedures:edit'),
@@ -114,6 +116,8 @@ const stepRows = (input: ProcedureInput) =>
     minValue: s.inputType === 'NUMBER' ? (s.minValue ?? null) : null,
     maxValue: s.inputType === 'NUMBER' ? (s.maxValue ?? null) : null,
     required: s.required,
+    options: s.inputType === 'MULTIPLE_CHOICE' ? (s.options ?? []) : [],
+    requirePhoto: s.inputType === 'PHOTO' ? false : (s.requirePhoto ?? false),
   }))
 
 async function assertNameFree(auth: AuthContext, name: string, exceptId?: string) {
