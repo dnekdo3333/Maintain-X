@@ -13,6 +13,7 @@ export default defineConfig(
       '**/coverage/**',
       'apps/server/prisma/migrations/**',
       'apps/server/storage/**',
+      'apps/mobile/**',
     ],
   },
   js.configs.recommended,
